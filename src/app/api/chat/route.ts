@@ -75,6 +75,8 @@ export async function POST(req: Request) {
     // 3. Fetch API Keys (User override -> Server fallback)
     let lightningKey = process.env.LIGHTNING_API_KEY;
     let openaiKey = process.env.OPENAI_API_KEY;
+    let lightningUsername = '';
+    let lightningTeamspace = '';
 
     if (user.$id !== 'guest') {
         try {
@@ -83,18 +85,27 @@ export async function POST(req: Request) {
             secretsColl,
             [
                 Query.equal('userId', user.$id),
-                Query.limit(10)
+                Query.limit(20)
             ]
             );
 
             const lightningKeyDoc = secrets.documents.find(d => d.keyName === 'lightning_api_key');
             const openaiKeyDoc = secrets.documents.find(d => d.keyName === 'openai_api_key');
+            const lightningUserDoc = secrets.documents.find(d => d.keyName === 'lightning_username');
+            const lightningTeamDoc = secrets.documents.find(d => d.keyName === 'lightning_teamspace');
 
             if (lightningKeyDoc?.keyValue) lightningKey = lightningKeyDoc.keyValue;
             if (openaiKeyDoc?.keyValue) openaiKey = openaiKeyDoc.keyValue;
+            if (lightningUserDoc?.keyValue) lightningUsername = lightningUserDoc.keyValue;
+            if (lightningTeamDoc?.keyValue) lightningTeamspace = lightningTeamDoc.keyValue;
         } catch (e) {
             console.warn("Failed to fetch user secrets, falling back to system keys", e);
         }
+    }
+
+    // Combine Lightning Key if username/teamspace are present
+    if (lightningKey && lightningUsername && lightningTeamspace) {
+        lightningKey = `${lightningKey}/${lightningUsername}/${lightningTeamspace}`;
     }
 
     const getProviderAndKey = (modelName: string) => {

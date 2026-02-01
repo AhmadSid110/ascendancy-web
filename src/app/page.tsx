@@ -47,6 +47,8 @@ export default function Home() {
   
   // Config Form
   const [lightningKey, setLightningKey] = useState('');
+  const [lightningUsername, setLightningUsername] = useState('');
+  const [lightningTeamspace, setLightningTeamspace] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [isConfigured, setIsConfigured] = useState(false);
   
@@ -115,7 +117,7 @@ export default function Home() {
       const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
       const collId = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
       try {
-        const secrets = await databases.listDocuments(dbId, collId, [Query.equal('userId', userId), Query.limit(10)]);
+        const secrets = await databases.listDocuments(dbId, collId, [Query.equal('userId', userId), Query.limit(20)]);
         const hasLightning = secrets.documents.some(d => d.keyName === 'lightning_api_key');
         const hasOpenAI = secrets.documents.some(d => d.keyName === 'openai_api_key');
         
@@ -124,6 +126,13 @@ export default function Home() {
         // Pre-fill keys if found
         const lKey = secrets.documents.find(d => d.keyName === 'lightning_api_key');
         if (lKey) setLightningKey(lKey.keyValue);
+        
+        const lUser = secrets.documents.find(d => d.keyName === 'lightning_username');
+        if (lUser) setLightningUsername(lUser.keyValue);
+        
+        const lTeam = secrets.documents.find(d => d.keyName === 'lightning_teamspace');
+        if (lTeam) setLightningTeamspace(lTeam.keyValue);
+
         const oKey = secrets.documents.find(d => d.keyName === 'openai_api_key');
         if (oKey) setOpenaiKey(oKey.keyValue);
 
@@ -211,6 +220,8 @@ export default function Home() {
     setIsProcessing(true);
     try {
         await saveKey('lightning_api_key', lightningKey);
+        await saveKey('lightning_username', lightningUsername);
+        await saveKey('lightning_teamspace', lightningTeamspace);
         await saveKey('openai_api_key', openaiKey);
         setIsConfigured(true);
         setShowSettings(false); // Close settings if open
@@ -333,7 +344,13 @@ export default function Home() {
   const [pingResults, setPingResults] = useState<Record<string, { success: boolean, latency?: number, error?: string }>>({});
 
   const pingModel = async (provider: 'lightning' | 'openai') => {
-    const key = provider === 'lightning' ? lightningKey : openaiKey;
+    let key = provider === 'lightning' ? lightningKey : openaiKey;
+    
+    // Combine Lightning Key if needed
+    if (provider === 'lightning' && lightningUsername && lightningTeamspace) {
+        key = `${lightningKey}/${lightningUsername}/${lightningTeamspace}`;
+    }
+
     const model = provider === 'lightning' ? 'gpt-oss-120b' : 'gpt-4o-mini';
     
     setPinging(provider);
@@ -412,8 +429,24 @@ export default function Home() {
                 <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-1 block">Lightning AI API Key</label>
                 <input 
                   type="password" value={lightningKey} onChange={(e) => setLightningKey(e.target.value)}
-                  placeholder="sk-..." className="w-full px-4 py-3 rounded-xl font-mono text-sm border border-[var(--card-border)] bg-[var(--background)]"
+                  placeholder="sk-..." className="w-full px-4 py-3 rounded-xl font-mono text-sm border border-[var(--card-border)] bg-[var(--background)] mb-2"
                 />
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1 block">Username</label>
+                        <input 
+                          type="text" value={lightningUsername} onChange={(e) => setLightningUsername(e.target.value)}
+                          placeholder="username" className="w-full px-3 py-2 rounded-lg text-xs border border-[var(--card-border)] bg-[var(--background)]"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1 block">Teamspace</label>
+                        <input 
+                          type="text" value={lightningTeamspace} onChange={(e) => setLightningTeamspace(e.target.value)}
+                          placeholder="teamspace" className="w-full px-3 py-2 rounded-lg text-xs border border-[var(--card-border)] bg-[var(--background)]"
+                        />
+                    </div>
+                </div>
             </div>
             <div>
                 <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-1 block">OpenAI API Key</label>
@@ -561,7 +594,19 @@ export default function Home() {
                                 {pinging === 'lightning' ? 'Pinging...' : 'Ping'}
                             </button>
                         </div>
-                        <input type="password" value={lightningKey} onChange={e => setLightningKey(e.target.value)} className="w-full bg-[var(--background)] rounded p-1 text-xs border border-[var(--card-border)]" placeholder="sk-..." />
+                        <input type="password" value={lightningKey} onChange={e => setLightningKey(e.target.value)} className="w-full bg-[var(--background)] rounded p-1 text-xs border border-[var(--card-border)] mb-2" placeholder="sk-..." />
+                        
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                            <div>
+                                <label className="text-[8px] uppercase text-[var(--text-muted)]">Username</label>
+                                <input type="text" value={lightningUsername} onChange={e => setLightningUsername(e.target.value)} className="w-full bg-[var(--background)] rounded p-1 text-xs border border-[var(--card-border)]" placeholder="user" />
+                            </div>
+                            <div>
+                                <label className="text-[8px] uppercase text-[var(--text-muted)]">Teamspace</label>
+                                <input type="text" value={lightningTeamspace} onChange={e => setLightningTeamspace(e.target.value)} className="w-full bg-[var(--background)] rounded p-1 text-xs border border-[var(--card-border)]" placeholder="team" />
+                            </div>
+                        </div>
+
                         {pingResults.lightning && (
                             <p className={`text-[9px] mt-1 ${pingResults.lightning.success ? 'text-emerald-500' : 'text-red-500'}`}>
                                 {pingResults.lightning.success ? `Success (${pingResults.lightning.latency}ms)` : `Error: ${pingResults.lightning.error}`}
