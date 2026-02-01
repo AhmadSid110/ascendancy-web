@@ -86,6 +86,30 @@ export default function Home() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  const checkSession = async () => {
+    try {
+      // Try server-side session check first (more reliable in Next.js)
+      const res = await fetch('/api/auth/session');
+      if (res.ok) {
+        const session = await res.json();
+        setUser(session);
+        setIsAuthenticated(true);
+        loadChatHistory(session.$id);
+        checkConfig(session.$id);
+        return;
+      }
+      
+      // Fallback to client SDK if server check fails
+      const session = await account.get();
+      setUser(session);
+      setIsAuthenticated(true);
+      loadChatHistory(session.$id);
+      checkConfig(session.$id);
+    } catch (err) {
+      setIsAuthenticated(false);
+    }
+  };
+
   // Load Council & Auth
   useEffect(() => {
     const savedCouncil = localStorage.getItem('zenith_council');
@@ -99,29 +123,6 @@ export default function Home() {
     const savedDebug = localStorage.getItem('zenith_debug');
     if (savedDebug) setDebugMode(savedDebug === 'true');
 
-    const checkSession = async () => {
-      try {
-        // Try server-side session check first (more reliable in Next.js)
-        const res = await fetch('/api/auth/session');
-        if (res.ok) {
-          const session = await res.json();
-          setUser(session);
-          setIsAuthenticated(true);
-          loadChatHistory(session.$id);
-          checkConfig(session.$id);
-          return;
-        }
-        
-        // Fallback to client SDK if server check fails
-        const session = await account.get();
-        setUser(session);
-        setIsAuthenticated(true);
-        loadChatHistory(session.$id);
-        checkConfig(session.$id);
-      } catch (err) {
-        setIsAuthenticated(false);
-      }
-    };
     checkSession();
   }, []);
 
