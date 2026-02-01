@@ -8,13 +8,37 @@
 :root {
   --background: #050505;
   --foreground: #ededed;
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --accent: #3b82f6;
+  --accent-glow: rgba(59, 130, 246, 0.5);
+  --text-muted: rgba(255, 255, 255, 0.4);
+}
+
+[data-theme='light'] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card-bg: rgba(255, 255, 255, 0.8);
+  --card-border: rgba(0, 0, 0, 0.05);
+  --input-bg: #ffffff;
+  --input-border: rgba(0, 0, 0, 0.1);
+  --accent: #2563eb;
+  --accent-glow: rgba(37, 99, 235, 0.2);
+  --text-muted: rgba(15, 23, 42, 0.5);
 }
 
 body {
   color: var(--foreground);
-  background: radial-gradient(circle at top center, #111 0%, #050505 100%);
+  background: var(--background);
   min-height: 100vh;
   overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+[data-theme='dark'] body {
+  background: radial-gradient(circle at top center, #111 0%, #050505 100%);
 }
 
 /* Custom Scrollbar */
@@ -27,16 +51,31 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--text-muted);
   border-radius: 10px;
+  opacity: 0.2;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--accent);
 }
 
 .glass-panel {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--card-bg);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Clean Input Styles */
+input, textarea, select {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--foreground);
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }

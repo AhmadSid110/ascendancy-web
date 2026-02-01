@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server';
 import { createSessionClient, createAdminClient } from '@/lib/appwrite-server';
 import { Query, ID } from 'node-appwrite';
 
+// Updated to use Lightning AI specific model names
 const DEFAULT_COUNCIL = {
-  moderator: 'llama-3.1-70b-instruct',
-  skeptic: 'qwen2.5-72b-instruct', // Using Qwen as a strong skeptic/logic model
-  visionary: 'llama-3.3-70b-instruct'
+  moderator: 'lightning-ai/gpt-oss-120b', // Aligned with user preference
+  skeptic: 'lightning-ai/qwen2.5-72b-instruct', 
+  visionary: 'lightning-ai/llama-3.3-70b-instruct'
 };
 
 async function callLightningAI(apiKey: string, model: string, messages: any[]) {
+  // Ensure model has the correct prefix if missing
+  const fullModel = model.startsWith('lightning-ai/') ? model : `lightning-ai/${model}`;
+  
   const response = await fetch('https://lightning.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -16,7 +20,7 @@ async function callLightningAI(apiKey: string, model: string, messages: any[]) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: model,
+      model: fullModel,
       messages: messages,
       temperature: 0.7,
     }),
@@ -24,7 +28,8 @@ async function callLightningAI(apiKey: string, model: string, messages: any[]) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Lightning AI Error (${model}): ${response.status} - ${text}`);
+    console.error(`Lightning AI Error (${fullModel}):`, text);
+    throw new Error(`Lightning AI Error (${fullModel}): ${response.status} - ${text}`);
   }
 
   const data = await response.json();
@@ -33,7 +38,7 @@ async function callLightningAI(apiKey: string, model: string, messages: any[]) {
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, model, messages: historyMessages, mode } = await req.json();
 
     if (!prompt) {
         return NextResponse.json({ error: { message: 'Prompt is required' } }, { status: 400 });
@@ -69,6 +74,41 @@ export async function POST(req: Request) {
     }
     const apiKey = secrets.documents[0].keyValue;
 
+    // DIRECT / SOLO MODE
+    if (model && mode !== 'debate') {
+        const messages = historyMessages || [{ role: 'user', content: prompt }];
+        // Ensure the last message is the current prompt if not already in history (simplified)
+        // Ideally we just trust messages passed or construct [system, user]
+        // But for simplicity in this edit:
+        const requestMessages = [
+            { role: 'system', content: 'You are a helpful AI assistant.' },
+            { role: 'user', content: prompt }
+        ];
+
+        const content = await callLightningAI(apiKey, model, requestMessages);
+        
+        // Save to history
+        await databases.createDocument(
+            dbId,
+            process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
+            ID.unique(),
+            {
+                userId: user.$id,
+                message: content,
+                role: 'assistant',
+                sender: model,
+                timestamp: new Date().toISOString()
+            }
+        );
+
+        return NextResponse.json({
+            content,
+            model
+        });
+    }
+
+    // --- DEBATE PROTOCOL (Default) ---
+
     // 4. Fetch Council Config
     let council = { ...DEFAULT_COUNCIL };
     try {
@@ -76,10 +116,8 @@ export async function POST(req: Request) {
         const configs = await databases.listDocuments(
             dbId,
             configColl,
-            [Query.equal('configId', 'default'), Query.limit(1)] // Assuming 'default' or user-specific config
+            [Query.equal('configId', 'default'), Query.limit(1)] 
         );
-        // Note: Ideally, we should check for a user-specific config, or a global default.
-        // For now, if no config is found, we use defaults.
         if (configs.total > 0) {
             const c = configs.documents[0];
             council = {
@@ -92,10 +130,7 @@ export async function POST(req: Request) {
         console.warn("Could not fetch council config, using defaults.");
     }
 
-    // --- DEBATE PROTOCOL ---
-
     // Step 1: The Moderator
-    // Role: Provide a balanced, standard answer.
     const modMessages = [
         { role: 'system', content: 'You are the Moderator of the Ascendancy Council. Provide a balanced, objective, and standard answer to the user query.' },
         { role: 'user', content: prompt }
@@ -103,7 +138,6 @@ export async function POST(req: Request) {
     const modResponse = await callLightningAI(apiKey, council.moderator, modMessages);
 
     // Step 2: The Skeptic
-    // Role: Challenge the answer. Find flaws.
     const skepticMessages = [
         { role: 'system', content: 'You are the Skeptic of the Ascendancy Council. Your job is to challenge the Moderator\'s answer. Find flaws, logical gaps, potential hallucinations, or missing perspectives. Be critical but constructive.' },
         { role: 'user', content: `User Query: "${prompt}"\n\nModerator Answer: "${modResponse}"` }
@@ -111,7 +145,6 @@ export async function POST(req: Request) {
     const skepticResponse = await callLightningAI(apiKey, council.skeptic, skepticMessages);
 
     // Step 3: The Visionary
-    // Role: Synthesize final resolution.
     const visionaryMessages = [
         { role: 'system', content: 'You are the Visionary of the Ascendancy Council. Synthesize a final, forward-looking, and comprehensive answer based on the debate. Incorporate the valid points from the Skeptic while maintaining the core truth from the Moderator. Your answer is the final output to the user.' },
         { role: 'user', content: `User Query: "${prompt}"\n\nModerator Answer: "${modResponse}"\n\nSkeptic Critique: "${skepticResponse}"` }
@@ -119,8 +152,6 @@ export async function POST(req: Request) {
     const visionaryResponse = await callLightningAI(apiKey, council.visionary, visionaryMessages);
 
     // 5. Persistence
-
-    // Save Debate History
     const debateId = ID.unique();
     await databases.createDocument(
         dbId,
@@ -139,7 +170,6 @@ export async function POST(req: Request) {
         }
     );
 
-    // Save Chat History (The final result)
     await databases.createDocument(
         dbId,
         process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
@@ -147,16 +177,12 @@ export async function POST(req: Request) {
         {
             userId: user.$id,
             message: visionaryResponse,
-            role: 'assistant', // The 'Visionary' speaks for the system
+            role: 'assistant',
             timestamp: new Date().toISOString()
         }
     );
     
-    // Also save the USER's message to chat history if not already handled by frontend calling a separate endpoint.
-    // Usually, chat apps save the user message *before* calling the API, or the API saves both. 
-    // Assuming the API saves the assistant response, and we might want to ensure the user message is logged too.
-    // But typically the frontend might do that. Let's just save the assistant response here to avoid duplicates if frontend handles user msg.
-    // However, to be safe:
+    // Also save user message if needed (usually handled by frontend or before this)
     await databases.createDocument(
         dbId,
         process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
@@ -169,7 +195,6 @@ export async function POST(req: Request) {
         }
     );
 
-    // Return the result
     return NextResponse.json({
         content: visionaryResponse,
         debate: {
