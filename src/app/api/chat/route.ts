@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import { createSessionClient, createAdminClient } from '@/lib/appwrite-server';
 import { Query, ID } from 'node-appwrite';
 
-// Updated to use Lightning AI specific model names
+// Updated to use Lightning AI specific model names from verified list
 const DEFAULT_COUNCIL = {
   moderator: 'lightning-ai/gpt-oss-120b', 
-  skeptic: 'lightning-ai/qwen2.5-72b-instruct', 
-  visionary: 'lightning-ai/llama-3.3-70b-instruct'
+  skeptic: 'lightning-ai/llama-3.3-70b', 
+  visionary: 'lightning-ai/DeepSeek-V3.1'
 };
 
 async function callAI(apiKey: string, model: string, messages: any[], provider: 'lightning' | 'openai') {
