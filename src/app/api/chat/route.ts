@@ -45,7 +45,7 @@ async function callAI(apiKey: string, model: string, messages: any[], provider: 
 
 export async function POST(req: Request) {
   try {
-    const { prompt, model, messages: historyMessages, mode, debug } = await req.json();
+    const { prompt, model, messages: historyMessages, mode, debug, role } = await req.json();
 
     if (!prompt) {
         return NextResponse.json({ error: { message: 'Prompt is required' } }, { status: 400 });
@@ -174,7 +174,8 @@ export async function POST(req: Request) {
         const messages = historyMessages || [{ role: 'user', content: prompt }];
         // Ensure system message if needed
         if (!messages.find((m: any) => m.role === 'system')) {
-            messages.unshift({ role: 'system', content: 'You are a helpful AI assistant.' });
+            const systemContent = role ? `You are ${role}.` : 'You are a helpful AI assistant.';
+            messages.unshift({ role: 'system', content: systemContent });
         }
 
         const content = await safeCallAI(model, messages);

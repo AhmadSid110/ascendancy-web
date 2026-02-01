@@ -22,7 +22,10 @@ import {
   AlertTriangle,
   Terminal,
   Maximize,
-  Minimize
+  Minimize,
+  Pencil,
+  Check,
+  X
 } from 'lucide-react';
 
 const DEFAULT_COUNCIL = [
@@ -67,6 +70,12 @@ export default function Home() {
 
   // Settings UI State
   const [showSettings, setShowSettings] = useState(false);
+
+  // Edit Model State
+  const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPath, setEditPath] = useState('');
+  const [editRole, setEditRole] = useState('');
 
   const [councilMode, setCouncilMode] = useState<'debate' | 'solo'>('debate');
   const [showReasoning, setShowReasoning] = useState(true);
@@ -304,7 +313,7 @@ export default function Home() {
     finally { setIsProcessing(false); }
   };
 
-  const callAI = async (prompt: string, model: string, mode: 'debate' | 'solo', historyMessages?: any[]) => {
+  const callAI = async (prompt: string, model: string, mode: 'debate' | 'solo', historyMessages?: any[], role?: string) => {
     // Attempt to get a JWT for session syncing to the server
     let jwt = null;
     try {
@@ -324,6 +333,7 @@ export default function Home() {
         prompt,
         model,
         mode,
+        role,
         messages: historyMessages,
         debug: debugMode
       }),
@@ -355,11 +365,12 @@ export default function Home() {
 
     try {
       if (councilMode === 'solo') {
-        const result = await callAI(userMessage, activeModel, 'solo', newMessages);
+        const member = council.find(m => m.model === activeModel);
+        const result = await callAI(userMessage, activeModel, 'solo', newMessages, member?.role);
         setMessages(prev => [...prev, { 
             role: 'assistant', 
             content: result.content, 
-            sender: council.find(m => m.model === activeModel)?.name || 'AI',
+            sender: member?.name || 'AI',
             debugInfo: result.debug
         }]);
       } else {
@@ -414,6 +425,29 @@ export default function Home() {
     const updated = council.filter(m => m.id !== id);
     setCouncil(updated);
     localStorage.setItem('zenith_council', JSON.stringify(updated));
+  };
+
+  const startEditing = (member: any) => {
+    setEditingModelId(member.id);
+    setEditName(member.name);
+    setEditPath(member.model);
+    setEditRole(member.role || 'Advisor');
+  };
+
+  const cancelEditing = () => {
+    setEditingModelId(null);
+  };
+
+  const saveEdit = (id: string) => {
+    const updated = council.map(m => {
+      if (m.id === id) {
+        return { ...m, name: editName, model: editPath, role: editRole };
+      }
+      return m;
+    });
+    setCouncil(updated);
+    localStorage.setItem('zenith_council', JSON.stringify(updated));
+    setEditingModelId(null);
   };
 
   const updateUiScale = (val: number) => {
@@ -588,19 +622,60 @@ export default function Home() {
                 <div 
                   key={member.id} 
                   onClick={() => setActiveModel(member.model)}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  className={`p-3 rounded-xl border transition-all ${
                     activeModel === member.model && councilMode === 'solo' 
                     ? 'border-[var(--accent)] bg-[var(--accent)]/5' 
                     : 'border-[var(--card-border)] hover:bg-[var(--card-border)]'
-                  }`}
+                  } ${editingModelId === member.id ? 'cursor-default' : 'cursor-pointer'}`}
                 >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-medium">{member.name}</span>
-                    <button onClick={(e) => { e.stopPropagation(); deleteModel(member.id); }} className="text-[var(--text-muted)] hover:text-red-500">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div className="text-xs text-[var(--text-muted)] truncate">{member.model}</div>
+                  {editingModelId === member.id ? (
+                    <div className="space-y-2" onClick={e => e.stopPropagation()}>
+                       <input 
+                         value={editName} 
+                         onChange={e => setEditName(e.target.value)}
+                         className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded p-1 text-xs"
+                         placeholder="Name"
+                       />
+                       <input 
+                         value={editPath} 
+                         onChange={e => setEditPath(e.target.value)}
+                         className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded p-1 text-xs"
+                         placeholder="Model ID"
+                       />
+                       <input 
+                         value={editRole} 
+                         onChange={e => setEditRole(e.target.value)}
+                         className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded p-1 text-xs"
+                         placeholder="Role (e.g. Skeptic)"
+                       />
+                       <div className="flex justify-end gap-1 pt-1">
+                          <button onClick={cancelEditing} className="p-1 text-[var(--text-muted)] hover:text-red-500">
+                             <X className="w-3 h-3" />
+                          </button>
+                          <button onClick={() => saveEdit(member.id)} className="p-1 text-[var(--accent)] hover:text-[var(--accent)]/80">
+                             <Check className="w-3 h-3" />
+                          </button>
+                       </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium">{member.name}</span>
+                            <span className="text-[10px] text-[var(--accent)] font-semibold uppercase tracking-wider">{member.role}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <button onClick={(e) => { e.stopPropagation(); startEditing(member); }} className="text-[var(--text-muted)] hover:text-[var(--accent)]">
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); deleteModel(member.id); }} className="text-[var(--text-muted)] hover:text-red-500">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                        </div>
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)] truncate">{member.model}</div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -619,9 +694,10 @@ export default function Home() {
               </select>
 
               <input value={newModelName} onChange={e => setNewModelName(e.target.value)} placeholder="Display Name (e.g. GPT-4)" className="w-full bg-transparent border-b border-[var(--card-border)] p-1 text-xs focus:ring-0 mb-2" />
-              <input value={newModelPath} onChange={e => setNewModelPath(e.target.value)} placeholder={newModelProvider === 'openai' ? 'Model ID (e.g. gpt-4)' : 'Model ID (e.g. llama-3.1)'} className="w-full bg-transparent border-b border-[var(--card-border)] p-1 text-xs focus:ring-0 text-[var(--text-muted)]" />
+              <input value={newModelPath} onChange={e => setNewModelPath(e.target.value)} placeholder={newModelProvider === 'openai' ? 'Model ID (e.g. gpt-4)' : 'Model ID (e.g. llama-3.1)'} className="w-full bg-transparent border-b border-[var(--card-border)] p-1 text-xs focus:ring-0 text-[var(--text-muted)] mb-2" />
+              <input value={newModelRole} onChange={e => setNewModelRole(e.target.value)} placeholder="Role (e.g. Advisor, Skeptic)" className="w-full bg-transparent border-b border-[var(--card-border)] p-1 text-xs focus:ring-0 text-[var(--text-muted)]" />
               
-              <p className="text-[10px] text-[var(--text-muted)] italic">
+              <p className="text-[10px] text-[var(--text-muted)] italic mt-2">
                   {newModelProvider === 'openai' ? 'Requires OpenAI API Key.' : 'Requires Lightning AI API Key.'}
               </p>
 
