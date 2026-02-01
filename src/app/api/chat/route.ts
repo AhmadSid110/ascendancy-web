@@ -122,7 +122,12 @@ export async function POST(req: Request) {
     // Helper wrapper to handle key missing errors
     const safeCallAI = async (m: string, msgs: any[]) => {
         const { provider, key } = getProviderAndKey(m);
-        if (!key) throw new Error(`Missing API Key for provider: ${provider}`);
+        if (!key) {
+            const reason = user.$id === 'guest' 
+                ? 'Guest access requires server-side API keys. Please log in or set LIGHTNING_API_KEY.' 
+                : `User '${user.name}' (${user.$id}) has no ${provider}_api_key saved in Appwrite.`;
+            throw new Error(`Missing API Key for provider: ${provider}. ${reason}`);
+        }
         return await callAI(key, m, msgs, provider);
     };
 

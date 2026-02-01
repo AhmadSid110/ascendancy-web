@@ -13,35 +13,27 @@ const DB_ID = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
 const COLLECTIONS = {
     user_secrets: {
         permissions: [
-            Permission.create(Role.users()) // Authenticated users can create
+            Permission.create(Role.users())
         ],
-        documentSecurity: true // Enable document-level security (users manage their own)
+        documentSecurity: true
     },
     chat_history: {
         permissions: [
-            Permission.create(Role.users()),
-            Permission.read(Role.users()) // Users can read (filtered by doc security usually, or all if doc security is off? With doc security ON, this grants NOTHING extra unless they own it, or does it? Wait. If Doc Security is ON, collection read permission grants read access to ALL docs? No. If Doc Security is TRUE, then permissions are the union. Wait.
-            // Documentation says: "When Document Security is enabled, you can define permissions for each document."
-            // "Collection-level permissions apply to all documents in the collection."
-            // So if I add 'read("users")' to collection, ALL users can read ALL docs. We DON'T want that for secrets.
-            // We DO want 'create("users")' so they can create.
-            // Once created, the Creator usually gets all permissions on the doc automatically.
+            Permission.create(Role.users())
         ],
         documentSecurity: true
     },
     debate_history: {
         permissions: [
-            Permission.create(Role.users()),
-            Permission.read(Role.users()) // Debates might be public? Let's keep it private for now.
+            Permission.create(Role.users())
         ],
         documentSecurity: true
     },
     council_config: {
         permissions: [
-            Permission.create(Role.users()),
-            Permission.read(Role.users())
+            Permission.read(Role.users()) // Everyone can read the config
         ],
-        documentSecurity: true
+        documentSecurity: false // Global config
     }
 };
 
