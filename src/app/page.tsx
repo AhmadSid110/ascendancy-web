@@ -163,6 +163,16 @@ export default function Home() {
     finally { setIsProcessing(false); }
   };
 
+  const handleLogout = async () => {
+    try {
+      await account.deleteSession('current');
+    } catch (e) { console.error('Logout error', e); }
+    setIsAuthenticated(false);
+    setUser(null);
+    setMessages([]);
+    setIsConfigured(false); // Reset config state to force re-check or re-login
+  };
+
   const saveKey = async (keyName: string, keyValue: string) => {
       if (!user) return;
       const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
@@ -518,13 +528,17 @@ export default function Home() {
         </div>
         
         <div className="p-4 border-t border-[var(--card-border)]">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 mb-3">
              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500" />
              <div className="flex-1 overflow-hidden">
                <p className="text-sm font-medium truncate">{user?.name || 'Anonymous'}</p>
-               <p className="text-xs text-[var(--text-muted)] truncate">{user?.email}</p>
+               <p className="text-xs text-[var(--text-muted)] truncate">{user?.email || 'Guest User'}</p>
              </div>
           </div>
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 py-2 rounded-lg transition-colors">
+              <p className="sr-only">Logout</p>
+              <span>Logout</span>
+          </button>
         </div>
       </motion.aside>
 

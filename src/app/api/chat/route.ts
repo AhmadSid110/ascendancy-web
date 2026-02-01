@@ -53,13 +53,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: { message: 'Prompt is required' } }, { status: 400 });
     }
 
-    // 1. Authenticate user
+    // 1. Authenticate user or fallback to Guest if server keys exist
     let user;
     try {
       const { account } = await createSessionClient();
       user = await account.get();
     } catch (e) {
-      return NextResponse.json({ error: { message: 'Unauthorized. Please log in.' } }, { status: 401 });
+      // Check if we can allow guest access via server-side keys
+      if (process.env.LIGHTNING_API_KEY || process.env.OPENAI_API_KEY) {
+          user = { $id: 'guest', name: 'Guest User' };
+      } else {
+          return NextResponse.json({ error: { message: 'Unauthorized. Please log in.' } }, { status: 401 });
+      }
     }
 
     // 2. Setup Admin Client for DB operations
@@ -67,21 +72,30 @@ export async function POST(req: Request) {
     const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
     const secretsColl = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
 
-    // 3. Fetch API Keys
-    const secrets = await databases.listDocuments(
-      dbId,
-      secretsColl,
-      [
-        Query.equal('userId', user.$id),
-        Query.limit(10) // Fetch all keys for user
-      ]
-    );
+    // 3. Fetch API Keys (User override -> Server fallback)
+    let lightningKey = process.env.LIGHTNING_API_KEY;
+    let openaiKey = process.env.OPENAI_API_KEY;
 
-    const lightningKeyDoc = secrets.documents.find(d => d.keyName === 'lightning_api_key');
-    const openaiKeyDoc = secrets.documents.find(d => d.keyName === 'openai_api_key');
+    if (user.$id !== 'guest') {
+        try {
+            const secrets = await databases.listDocuments(
+            dbId,
+            secretsColl,
+            [
+                Query.equal('userId', user.$id),
+                Query.limit(10)
+            ]
+            );
 
-    const lightningKey = lightningKeyDoc?.keyValue;
-    const openaiKey = openaiKeyDoc?.keyValue;
+            const lightningKeyDoc = secrets.documents.find(d => d.keyName === 'lightning_api_key');
+            const openaiKeyDoc = secrets.documents.find(d => d.keyName === 'openai_api_key');
+
+            if (lightningKeyDoc?.keyValue) lightningKey = lightningKeyDoc.keyValue;
+            if (openaiKeyDoc?.keyValue) openaiKey = openaiKeyDoc.keyValue;
+        } catch (e) {
+            console.warn("Failed to fetch user secrets, falling back to system keys", e);
+        }
+    }
 
     const getProviderAndKey = (modelName: string) => {
         if (modelName.startsWith('gpt-') || modelName.startsWith('o1-') || modelName.startsWith('openai/')) {
@@ -97,6 +111,16 @@ export async function POST(req: Request) {
         return await callAI(key, m, msgs, provider);
     };
 
+    // Helper for history persistence
+    const saveHistory = async (collectionId: string, data: any) => {
+        if (user.$id === 'guest') return; // Skip saving history for guests
+        try {
+            await databases.createDocument(dbId, collectionId, ID.unique(), data);
+        } catch (e) {
+            console.error("Failed to save history:", e);
+        }
+    };
+
     // DIRECT / SOLO MODE
     if (model && mode !== 'debate') {
         const messages = historyMessages || [{ role: 'user', content: prompt }];
@@ -108,10 +132,8 @@ export async function POST(req: Request) {
         const content = await safeCallAI(model, messages);
         
         // Save to history
-        await databases.createDocument(
-            dbId,
+        await saveHistory(
             process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
-            ID.unique(),
             {
                 userId: user.$id,
                 message: content,
@@ -176,13 +198,10 @@ export async function POST(req: Request) {
     const visionaryResponse = await safeCallAI(council.visionary, visionaryMessages);
 
     // 5. Persistence
-    const debateId = ID.unique();
-    await databases.createDocument(
-        dbId,
+    await saveHistory(
         'debate_history',
-        debateId,
         {
-            debateId: debateId,
+            debateId: ID.unique(),
             topic: prompt,
             result: JSON.stringify({
                 moderator: { model: council.moderator, content: modResponse },
@@ -194,10 +213,8 @@ export async function POST(req: Request) {
         }
     );
 
-    await databases.createDocument(
-        dbId,
+    await saveHistory(
         process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
-        ID.unique(),
         {
             userId: user.$id,
             message: visionaryResponse,
@@ -207,10 +224,8 @@ export async function POST(req: Request) {
     );
     
     // Also save user message if needed (usually handled by frontend or before this)
-    await databases.createDocument(
-        dbId,
+    await saveHistory(
         process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
-        ID.unique(),
         {
             userId: user.$id,
             message: prompt,
