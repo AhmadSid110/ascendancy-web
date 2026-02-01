@@ -88,8 +88,17 @@ export default function Home() {
 
   const checkSession = async () => {
     try {
-      // Try server-side session check first (more reliable in Next.js)
-      const res = await fetch('/api/auth/session');
+      // Get JWT for syncing if possible
+      let jwt = null;
+      try {
+          const jwtResponse = await account.createJWT();
+          jwt = jwtResponse.jwt;
+      } catch (e) {}
+
+      // Try server-side session check
+      const res = await fetch('/api/auth/session', {
+          headers: jwt ? { 'x-appwrite-jwt': jwt } : {}
+      });
       if (res.ok) {
         const session = await res.json();
         setUser(session);
@@ -99,7 +108,7 @@ export default function Home() {
         return;
       }
       
-      // Fallback to client SDK if server check fails
+      // Fallback to client SDK if server check fails (shouldn't happen with JWT sync)
       const session = await account.get();
       setUser(session);
       setIsAuthenticated(true);
@@ -193,7 +202,22 @@ export default function Home() {
           console.warn("Client-side session sync failed, but server session is set.", syncErr);
         }
       } else {
-        await account.createAnonymousSession();
+        // Use server-side anonymous login to set cookies
+        const res = await fetch('/api/auth/anonymous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Anonymous login failed');
+        
+        // Also sync client-side SDK if needed
+        try {
+          await account.get(); // Check if already has session
+        } catch (e) {
+          // If no client session, it will be automatically handled by cookies if domains match,
+          // but Appwrite Cloud usually needs a direct login or session sync.
+          // However, for now, the server session is what matters for /api/chat.
+        }
       }
       
       // 3. Verify session
@@ -249,9 +273,21 @@ export default function Home() {
   };
 
   const callAI = async (prompt: string, model: string, mode: 'debate' | 'solo', historyMessages?: any[]) => {
+    // Attempt to get a JWT for session syncing to the server
+    let jwt = null;
+    try {
+        const jwtResponse = await account.createJWT();
+        jwt = jwtResponse.jwt;
+    } catch (e) {
+        // Fallback for anonymous or failed JWT creation
+    }
+
     const response = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(jwt ? { 'x-appwrite-jwt': jwt } : {})
+      },
       body: JSON.stringify({
         prompt,
         model,

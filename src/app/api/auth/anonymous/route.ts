@@ -3,17 +3,13 @@ import { createClient } from '@/lib/appwrite-server';
 import { cookies } from 'next/headers';
 import { Account } from 'node-appwrite';
 
-export async function POST(req: Request) {
+export async function POST() {
   try {
-    const { email, password } = await req.json();
-
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
-    }
-
     const client = await createClient();
     const account = new Account(client);
-    const session = await account.createEmailPasswordSession(email, password);
+    
+    // Create an anonymous session
+    const session = await account.createAnonymousSession();
 
     const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
     const cookieName = `a_session_${projectId}`;
@@ -28,7 +24,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, user: session });
   } catch (error: any) {
-    console.error("Login API Error:", error);
+    console.error("Anonymous Login API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
