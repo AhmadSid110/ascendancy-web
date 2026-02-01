@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { account, databases, DB_ID, CHAT_COLLECTION_ID } from '@/lib/appwrite';
+import { account, databases, DB_ID, CHAT_COLLECTION_ID, COUNCIL_CONFIG_COLLECTION_ID, DEBATE_HISTORY_COLLECTION_ID } from '@/lib/appwrite';
 import { ID, Query } from 'appwrite';
 import CoreNode from '@/components/CoreNode';
 import GlassCard from '@/components/GlassCard';
@@ -17,7 +17,9 @@ import {
   Key,
   Plus,
   Trash2,
-  Send
+  Send,
+  Settings,
+  History
 } from 'lucide-react';
 
 // Default configuration
@@ -46,6 +48,10 @@ export default function Home() {
   const [newModelPath, setNewModelPath] = useState('');
   const [newModelRole, setNewModelRole] = useState('Advisor');
 
+  // Debate History State
+  const [debateHistory, setDebateHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   useEffect(() => {
     const savedCouncil = localStorage.getItem('zenith_council');
     if (savedCouncil) {
@@ -58,8 +64,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('zenith_council', JSON.stringify(council));
-  }, [council]);
+    if (user && isAuthenticated) {
+      saveCouncilConfig(user.$id);
+    } else {
+      // Fallback to local storage when not authenticated
+      localStorage.setItem('zenith_council', JSON.stringify(council));
+    }
+  }, [council, user, isAuthenticated]);
 
   const addModel = () => {
     if (!newModelName || !newModelPath) return;
@@ -87,10 +98,23 @@ export default function Home() {
     }
   }, [messages, activeThinker]);
   const [modelHealth, setModelHealth] = useState<Record<string, 'online' | 'offline' | 'checking'>>({});
-  const [activeView, setActiveView] = useState<'council' | 'chat' | 'settings'>('chat');
+  const [activeView, setActiveView] = useState<'council' | 'chat' | 'history' | 'settings'>('chat');
   const [showReasoning, setShowReasoning] = useState(true);
   const [antiHallucination, setAntiHallucination] = useState(true);
   const [councilMode, setCouncilMode] = useState<'debate' | 'solo'>('debate');
+
+  // Load debate history when history view is active
+  useEffect(() => {
+    if (user && activeView === 'history') {
+      const fetchHistory = async () => {
+        setLoadingHistory(true);
+        const history = await loadDebateHistory(user.$id);
+        setDebateHistory(history);
+        setLoadingHistory(false);
+      };
+      fetchHistory();
+    }
+  }, [activeView, user]);
 
   const toggleReasoning = () => setShowReasoning(!showReasoning);
   const toggleAntiHallucination = () => setAntiHallucination(!antiHallucination);
@@ -100,10 +124,32 @@ export default function Home() {
   useEffect(() => {
     const checkSession = async () => {
       try {
+        // Initialize collections first
+        await initializeCollections();
+        
         const session = await account.get();
         setUser(session);
         setIsAuthenticated(true);
         loadChatHistory(session.$id);
+        loadCouncilConfig(session.$id);
+        
+        // After auth, check for API key in Appwrite
+        const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
+        const collId = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
+        const secrets = await databases.listDocuments(
+          dbId,
+          collId,
+          [
+            Query.equal('userId', session.$id),
+            Query.equal('keyName', 'lightning_api_key'),
+            Query.limit(1)
+          ]
+        );
+        
+        if (secrets.total > 0) {
+          setApiKey(secrets.documents[0].keyValue);
+          setIsConfigured(true);
+        }
       } catch (err) {
         setIsAuthenticated(false);
         setUser(null);
@@ -111,13 +157,109 @@ export default function Home() {
     };
     
     checkSession();
-    
-    const savedKey = localStorage.getItem('lightning_api_key');
-    if (savedKey) {
-      setApiKey(savedKey);
-      setIsConfigured(true);
-    }
   }, []);
+
+  // Load council configuration from Appwrite
+  const loadCouncilConfig = async (userId: string) => {
+    try {
+      const response = await databases.listDocuments(
+        DB_ID,
+        COUNCIL_CONFIG_COLLECTION_ID,
+        [
+          Query.equal('userId', userId),
+          Query.limit(1)
+        ]
+      );
+      
+      if (response.total > 0) {
+        const config = response.documents[0];
+        const councilFromConfig = [
+          { id: '1', name: 'DeepSeek V3.1', model: config.skepticModel, role: 'The Skeptic', color: 'text-red-400' },
+          { id: '2', name: 'GPT-OSS 120B', model: config.moderatorModel, role: 'The Moderator', color: 'text-blue-400', thinking: true },
+          { id: '3', name: 'Llama 3.3', model: config.visionaryModel, role: 'The Visionary', color: 'text-emerald-400' }
+        ];
+        setCouncil(councilFromConfig);
+      }
+    } catch (err) {
+      console.error('Failed to load council config:', err);
+      // Fallback to local storage if Appwrite fails
+      const savedCouncil = localStorage.getItem('zenith_council');
+      if (savedCouncil) {
+        try {
+          setCouncil(JSON.parse(savedCouncil));
+        } catch (e) {
+          setCouncil(DEFAULT_COUNCIL);
+        }
+      }
+    }
+  };
+
+  // Initialize Appwrite collections if they don't exist
+  const initializeCollections = async () => {
+    // Note: In a real application, collection creation would typically happen 
+    // during backend setup, not in the frontend client code.
+    // We'll skip automatic collection creation in the frontend for safety.
+    // Instead, we'll just log that these collections should exist.
+    console.log('Ensure Appwrite collections exist: council_config, debate_history');
+  };
+
+  // Save council configuration to Appwrite
+  const saveCouncilConfig = async (userId: string) => {
+    if (!userId) return;
+    
+    try {
+      // Ensure collections exist
+      await initializeCollections();
+      
+      // First, try to find existing config
+      const existingConfigs = await databases.listDocuments(
+        DB_ID,
+        COUNCIL_CONFIG_COLLECTION_ID,
+        [
+          Query.equal('userId', userId),
+          Query.limit(1)
+        ]
+      );
+      
+      const moderator = council.find(m => m.role.toLowerCase().includes('moderator')) || council[1] || council[0];
+      const skeptic = council.find(m => m.role.toLowerCase().includes('skeptic')) || council[0];
+      const visionary = council.find(m => m.role.toLowerCase().includes('visionary')) || council[2] || council[0];
+      
+      if (existingConfigs.total > 0) {
+        // Update existing config
+        await databases.updateDocument(
+          DB_ID,
+          COUNCIL_CONFIG_COLLECTION_ID,
+          existingConfigs.documents[0].$id,
+          {
+            userId: userId,
+            moderatorModel: moderator?.model || 'lightning-ai/gpt-oss-120b',
+            skepticModel: skeptic?.model || 'lightning-ai/DeepSeek-V3.1',
+            visionaryModel: visionary?.model || 'lightning-ai/llama-3.3-70b',
+            updatedAt: new Date().toISOString()
+          }
+        );
+      } else {
+        // Create new config
+        await databases.createDocument(
+          DB_ID,
+          COUNCIL_CONFIG_COLLECTION_ID,
+          ID.unique(),
+          {
+            userId: userId,
+            moderatorModel: moderator?.model || 'lightning-ai/gpt-oss-120b',
+            skepticModel: skeptic?.model || 'lightning-ai/DeepSeek-V3.1',
+            visionaryModel: visionary?.model || 'lightning-ai/llama-3.3-70b',
+            createdAt: new Date().toISOString()
+          }
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save council config to Appwrite:', err);
+      // Fallback to local storage
+      localStorage.setItem('zenith_council', JSON.stringify(council));
+    }
+  };
 
   const loadChatHistory = async (userId: string) => {
     if (!DB_ID || !CHAT_COLLECTION_ID) return;
@@ -157,6 +299,54 @@ export default function Home() {
       );
     } catch (err) {
       console.error('Failed to save message:', err);
+    }
+  };
+
+  // Save debate history to Appwrite
+  const saveDebateHistory = async (topic: string, result: string) => {
+    if (!user || !DB_ID || !DEBATE_HISTORY_COLLECTION_ID) return;
+    try {
+      // Ensure collections exist before saving
+      await initializeCollections();
+      
+      await databases.createDocument(
+        DB_ID,
+        DEBATE_HISTORY_COLLECTION_ID,
+        ID.unique(),
+        {
+          userId: user.$id,
+          topic,
+          result,
+          timestamp: new Date().toISOString()
+        }
+      );
+    } catch (err) {
+      console.error('Failed to save debate history:', err);
+    }
+  };
+
+  // Load debate history from Appwrite
+  const loadDebateHistory = async (userId: string) => {
+    if (!userId || !DB_ID || !DEBATE_HISTORY_COLLECTION_ID) return [];
+    
+    try {
+      // Ensure collections exist before loading
+      await initializeCollections();
+      
+      const response = await databases.listDocuments(
+        DB_ID,
+        DEBATE_HISTORY_COLLECTION_ID,
+        [
+          Query.equal('userId', userId),
+          Query.orderDesc('$createdAt'),
+          Query.limit(50) // Limit to last 50 debates
+        ]
+      );
+      
+      return response.documents;
+    } catch (err) {
+      console.error('Failed to load debate history:', err);
+      return [];
     }
   };
 
@@ -222,14 +412,52 @@ export default function Home() {
     }
   };
 
-  const handleSaveApiKey = (e: React.FormEvent) => {
+  const handleSaveApiKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (apiKey.trim()) {
-      localStorage.setItem('lightning_api_key', apiKey);
+    if (!apiKey.trim()) {
+      setError('API Key Required');
+      return;
+    }
+
+    if (!user) {
+      setError('Please log in first');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
+      const collId = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
+
+      // Check if key already exists to update or create
+      const existing = await databases.listDocuments(
+        dbId,
+        collId,
+        [
+          Query.equal('userId', user.$id),
+          Query.equal('keyName', 'lightning_api_key'),
+          Query.limit(1)
+        ]
+      );
+
+      if (existing.total > 0) {
+        await databases.updateDocument(dbId, collId, existing.documents[0].$id, {
+          keyValue: apiKey
+        });
+      } else {
+        await databases.createDocument(dbId, collId, ID.unique(), {
+          userId: user.$id,
+          keyName: 'lightning_api_key',
+          keyValue: apiKey
+        });
+      }
+
       setIsConfigured(true);
       setError('');
-    } else {
-      setError('API Key Required');
+    } catch (err: any) {
+      setError('Failed to save to Appwrite: ' + err.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -304,6 +532,11 @@ export default function Home() {
           reasoning: visionaryResult.reasoning
         }]);
         await saveMessage('assistant', visionaryResult.content, visionary.name);
+        
+        // Save debate history to Appwrite
+        const debateResult = `Debate Topic: "${userMessage}"\n\nModerator: ${modResult.content}\n\nSkeptic: ${skepticResult.content}\n\nFinal Resolution: ${visionaryResult.content}`;
+        await saveDebateHistory(userMessage, debateResult);
+        
         setActiveThinker(null);
       }
       
@@ -637,88 +870,139 @@ export default function Home() {
           </AnimatePresence>
         </div>
 
-        {/* Right Column: Console/Chat Interface */}
-        <div className={`${activeView === 'chat' ? 'flex' : 'hidden lg:flex'} lg:col-span-6 flex flex-col gap-6 overflow-hidden h-[70vh] lg:h-full`}>
+        {/* Right Column: Console/Chat Interface or History */}
+        <div className={`${activeView === 'chat' || activeView === 'history' ? 'flex' : 'hidden lg:flex'} lg:col-span-6 flex flex-col gap-6 overflow-hidden h-[70vh] lg:h-full`}>
           <GlassCard className="h-full flex flex-col overflow-hidden relative">
-            <div className="flex items-center justify-between mb-4 flex-shrink-0">
-              <div className="flex items-center gap-2 text-emerald-400">
-                <Terminal className="w-4 h-4" />
-                <span className="text-xs font-semibold uppercase tracking-wider">Protocol Stream</span>
-              </div>
-              {isProcessing && (
-                <div className="flex gap-1.5 items-center">
-                  <span className="text-[8px] text-blue-400 animate-pulse font-mono">PROCESSING TRANSMISSION</span>
-                  <div className="flex gap-1">
-                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" />
-                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]" />
-                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+            {activeView === 'chat' ? (
+              <>
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <div className="flex items-center gap-2 text-emerald-400">
+                    <Terminal className="w-4 h-4" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Protocol Stream</span>
+                  </div>
+                  {isProcessing && (
+                    <div className="flex gap-1.5 items-center">
+                      <span className="text-[8px] text-blue-400 animate-pulse font-mono">PROCESSING TRANSMISSION</span>
+                      <div className="flex gap-1">
+                        <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" />
+                        <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                        <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div id="chat-stream" className="flex-1 overflow-y-auto mb-4 space-y-6 pr-2 custom-scrollbar">
+                  {messages.length === 0 ? (
+                    <div className="space-y-4 font-mono text-[10px] text-white/30 p-4 border border-white/5 rounded-xl bg-white/[0.02]">
+                      <p className="text-emerald-400/80">&gt; System initialized v1.0.4</p>
+                      <p>&gt; Model grid synchronized with Lightning AI</p>
+                      <p>&gt; Encryption protocols active</p>
+                      <p>&gt; Waiting for mission parameters...</p>
+                    </div>
+                  ) : (
+                    messages.map((msg, i) => (
+                      <motion.div 
+                        key={i} 
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="space-y-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-bold uppercase tracking-widest ${
+                            msg.role === 'user' ? 'text-white/40' : 
+                            council.find(m => m.name === msg.sender)?.color || 'text-emerald-400'
+                          }`}>
+                            {msg.sender || 'Ahmad'}
+                          </span>
+                          <div className="flex-1 h-[1px] bg-white/10" />
+                          <span className="text-[8px] text-white/10 font-mono">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <div className={`text-[12px] leading-relaxed text-white/80 whitespace-pre-wrap p-3 rounded-xl ${msg.role === 'user' ? 'bg-white/5 border border-white/5' : 'bg-blue-500/5 border border-blue-500/10'}`}>
+                          {msg.reasoning && showReasoning && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              className="mb-3 p-3 bg-white/5 border-l-2 border-blue-500/30 rounded-r-lg text-[10px] font-mono text-white/40 italic overflow-hidden"
+                            >
+                              <div className="flex items-center gap-2 mb-1 opacity-60">
+                                <Cpu className="w-3 h-3" />
+                                <span className="uppercase tracking-widest text-[8px]">Cognitive Process</span>
+                              </div>
+                              {msg.reasoning}
+                            </motion.div>
+                          )}
+                          {msg.content}
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex-shrink-0 pt-4">
+                  <form onSubmit={handleSendMessage} className="relative">
+                    <input 
+                      type="text" 
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="Enter transmission..."
+                      disabled={isProcessing}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-[12px] focus:outline-none focus:border-blue-500/50 transition-all pr-12 disabled:opacity-50 font-mono"
+                    />
+                    <button type="submit" disabled={!input.trim() || isProcessing} className="absolute right-2 top-2 bottom-2 px-3 bg-blue-600 rounded-lg text-white hover:bg-blue-500 disabled:opacity-50 disabled:bg-white/10 transition-all">
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </div>
+              </>
+            ) : activeView === 'history' ? (
+              <div className="h-full flex flex-col">
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <div className="flex items-center gap-2 text-indigo-400">
+                    <History className="w-4 h-4" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Debate History</span>
                   </div>
                 </div>
-              )}
-            </div>
-            
-            <div id="chat-stream" className="flex-1 overflow-y-auto mb-4 space-y-6 pr-2 custom-scrollbar">
-              {messages.length === 0 ? (
-                <div className="space-y-4 font-mono text-[10px] text-white/30 p-4 border border-white/5 rounded-xl bg-white/[0.02]">
-                  <p className="text-emerald-400/80">&gt; System initialized v1.0.4</p>
-                  <p>&gt; Model grid synchronized with Lightning AI</p>
-                  <p>&gt; Encryption protocols active</p>
-                  <p>&gt; Waiting for mission parameters...</p>
-                </div>
-              ) : (
-                messages.map((msg, i) => (
-                  <motion.div 
-                    key={i} 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="space-y-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[9px] font-bold uppercase tracking-widest ${
-                        msg.role === 'user' ? 'text-white/40' : 
-                        council.find(m => m.name === msg.sender)?.color || 'text-emerald-400'
-                      }`}>
-                        {msg.sender || 'Ahmad'}
-                      </span>
-                      <div className="flex-1 h-[1px] bg-white/10" />
-                      <span className="text-[8px] text-white/10 font-mono">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                
+                <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar">
+                  {loadingHistory ? (
+                    <div className="flex justify-center items-center h-full">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-400"></div>
                     </div>
-                    <div className={`text-[12px] leading-relaxed text-white/80 whitespace-pre-wrap p-3 rounded-xl ${msg.role === 'user' ? 'bg-white/5 border border-white/5' : 'bg-blue-500/5 border border-blue-500/10'}`}>
-                      {msg.reasoning && showReasoning && (
-                        <motion.div 
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          className="mb-3 p-3 bg-white/5 border-l-2 border-blue-500/30 rounded-r-lg text-[10px] font-mono text-white/40 italic overflow-hidden"
+                  ) : debateHistory.length === 0 ? (
+                    <div className="space-y-4 font-mono text-[10px] text-white/30 p-4 border border-white/5 rounded-xl bg-white/[0.02]">
+                      <p className="text-indigo-400/80">&gt; No debate history found</p>
+                      <p>&gt; Conduct your first council debate to see it here</p>
+                    </div>
+                  ) : (
+                    debateHistory.map((debate, i) => (
+                      <motion.div 
+                        key={debate.$id} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-4 bg-white/5 border border-white/10 rounded-xl"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Debate #{debateHistory.length - i}</span>
+                          <span className="text-[8px] text-white/40 font-mono">{new Date(debate.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div className="text-[10px] text-white/60 mb-2 line-clamp-2">"{debate.topic}"</div>
+                        <div className="text-[9px] text-white/80 leading-relaxed line-clamp-3">{debate.result}</div>
+                        <button 
+                          onClick={() => {
+                            setInput(debate.topic);
+                            setActiveView('chat');
+                          }}
+                          className="mt-2 text-[8px] text-indigo-400 hover:text-indigo-300 uppercase tracking-widest"
                         >
-                          <div className="flex items-center gap-2 mb-1 opacity-60">
-                            <Cpu className="w-3 h-3" />
-                            <span className="uppercase tracking-widest text-[8px]">Cognitive Process</span>
-                          </div>
-                          {msg.reasoning}
-                        </motion.div>
-                      )}
-                      {msg.content}
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
-
-            <div className="flex-shrink-0 pt-4">
-              <form onSubmit={handleSendMessage} className="relative">
-                <input 
-                  type="text" 
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Enter transmission..."
-                  disabled={isProcessing}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-[12px] focus:outline-none focus:border-blue-500/50 transition-all pr-12 disabled:opacity-50 font-mono"
-                />
-                <button type="submit" disabled={!input.trim() || isProcessing} className="absolute right-2 top-2 bottom-2 px-3 bg-blue-600 rounded-lg text-white hover:bg-blue-500 disabled:opacity-50 disabled:bg-white/10 transition-all">
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            </div>
+                          Revisit Debate →
+                        </button>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : null}
           </GlassCard>
         </div>
       </div>
@@ -740,6 +1024,12 @@ export default function Home() {
           className={`p-4 rounded-xl transition-all ${activeView === 'chat' ? 'bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'text-white/40'}`}
         >
           <MessageSquare className="w-5 h-5" />
+        </button>
+        <button 
+          onClick={() => setActiveView('history')}
+          className={`p-4 rounded-xl transition-all ${activeView === 'history' ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)]' : 'text-white/40'}`}
+        >
+          <History className="w-5 h-5" />
         </button>
       </motion.nav>
     </main>
