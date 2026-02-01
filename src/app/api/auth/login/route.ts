@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     const account = new Account(client);
     const session = await account.createEmailPasswordSession(email, password);
 
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697f306f00366329b3ef';
     const cookieName = `a_session_${projectId}`;
 
     (await cookies()).set(cookieName, session.secret, {

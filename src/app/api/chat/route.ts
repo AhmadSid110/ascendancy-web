@@ -56,12 +56,18 @@ export async function POST(req: Request) {
     try {
       const { account } = await createSessionClient();
       user = await account.get();
-    } catch (e) {
+    } catch (e: any) {
+      console.warn("Session check failed:", e.message);
       // Check if we can allow guest access via server-side keys
       if (process.env.LIGHTNING_API_KEY || process.env.OPENAI_API_KEY) {
           user = { $id: 'guest', name: 'Guest User' };
       } else {
-          return NextResponse.json({ error: { message: 'Unauthorized. Please log in.' } }, { status: 401 });
+          return NextResponse.json({ 
+              error: { 
+                  message: 'Unauthorized. Please log in.',
+                  debug: e.message 
+              } 
+          }, { status: 401 });
       }
     }
 
