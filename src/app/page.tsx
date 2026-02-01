@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { account, databases, DB_ID, CHAT_COLLECTION_ID } from '@/lib/appwrite';
+import { ID, Query } from 'appwrite';
 import CoreNode from '@/components/CoreNode';
 import GlassCard from '@/components/GlassCard';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,29 +22,56 @@ import {
 
 // Default configuration
 const DEFAULT_COUNCIL = [
-  { id: '1', name: 'DeepSeek-V3', model: 'lightning-ai/DeepSeek-V3.1', role: 'The Skeptic', color: 'text-red-400' },
-  { id: '2', name: 'GPT-OSS', model: 'lightning-ai/gpt-oss-120b', role: 'The Moderator', color: 'text-blue-400' },
+  { id: '1', name: 'Claude 3.5 Sonnet', model: 'anthropic/claude-3-5-sonnet-20241022', role: 'The Skeptic', color: 'text-red-400' },
+  { id: '2', name: 'Claude 3.5 Sonnet (Thinking)', model: 'anthropic/claude-3-5-sonnet-20241022', role: 'The Moderator', color: 'text-blue-400', thinking: true },
   { id: '3', name: 'Llama-3.3', model: 'lightning-ai/llama-3.3-70b', role: 'The Visionary', color: 'text-emerald-400' }
 ];
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<any>(null);
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(''); // Added email for Appwrite
   const [apiKey, setApiKey] = useState('');
   const [isConfigured, setIsConfigured] = useState(false);
-  const [messages, setMessages] = useState<{ role: string, content: string, sender?: string }[]>([]);
+  const [messages, setMessages] = useState<{ role: string, content: string, sender?: string, reasoning?: string }[]>([]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeThinker, setActiveThinker] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const chatEndRef = typeof window !== 'undefined' ? null : null; // Use a ref if needed, but I'll use scrollIntoView
+
+  useEffect(() => {
+    const chatContainer = document.getElementById('chat-stream');
+    if (chatContainer) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+  }, [messages, activeThinker]);
   const [modelHealth, setModelHealth] = useState<Record<string, 'online' | 'offline' | 'checking'>>({});
   const [activeView, setActiveView] = useState<'council' | 'chat' | 'settings'>('chat');
+  const [showReasoning, setShowReasoning] = useState(true);
+  const [antiHallucination, setAntiHallucination] = useState(true);
+  const [councilMode, setCouncilMode] = useState<'debate' | 'solo'>('debate');
+
+  const toggleReasoning = () => setShowReasoning(!showReasoning);
+  const toggleAntiHallucination = () => setAntiHallucination(!antiHallucination);
+  const toggleCouncilMode = () => setCouncilMode(councilMode === 'debate' ? 'solo' : 'debate');
 
   // Authentication check
   useEffect(() => {
-    const savedAuth = sessionStorage.getItem('zenith_auth');
-    if (savedAuth === 'true') {
-      setIsAuthenticated(true);
-    }
+    const checkSession = async () => {
+      try {
+        const session = await account.get();
+        setUser(session);
+        setIsAuthenticated(true);
+        loadChatHistory(session.$id);
+      } catch (err) {
+        setIsAuthenticated(false);
+        setUser(null);
+      }
+    };
+    
+    checkSession();
     
     const savedKey = localStorage.getItem('lightning_api_key');
     if (savedKey) {
@@ -50,6 +79,47 @@ export default function Home() {
       setIsConfigured(true);
     }
   }, []);
+
+  const loadChatHistory = async (userId: string) => {
+    if (!DB_ID || !CHAT_COLLECTION_ID) return;
+    try {
+      const response = await databases.listDocuments(
+        DB_ID,
+        CHAT_COLLECTION_ID,
+        [
+          Query.equal('userId', userId),
+          Query.orderAsc('$createdAt'),
+          Query.limit(100)
+        ]
+      );
+      setMessages(response.documents.map(doc => ({
+        role: doc.role,
+        content: doc.content,
+        sender: doc.sender
+      })));
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    }
+  };
+
+  const saveMessage = async (role: string, content: string, sender?: string) => {
+    if (!user || !DB_ID || !CHAT_COLLECTION_ID) return;
+    try {
+      await databases.createDocument(
+        DB_ID,
+        CHAT_COLLECTION_ID,
+        ID.unique(),
+        {
+          userId: user.$id,
+          role,
+          content,
+          sender: sender || ''
+        }
+      );
+    } catch (err) {
+      console.error('Failed to save message:', err);
+    }
+  };
 
   const performHealthCheck = async () => {
     const results: Record<string, 'online' | 'offline' | 'checking'> = {};
@@ -79,14 +149,37 @@ export default function Home() {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'zenith2026') {
+    setError('');
+    setIsProcessing(true);
+    try {
+      if (email && password) {
+        // Email Login
+        await account.createEmailPasswordSession(email, password);
+      } else {
+        // Anonymous Login (Fallback)
+        await account.createAnonymousSession();
+      }
+      const session = await account.get();
+      setUser(session);
       setIsAuthenticated(true);
-      sessionStorage.setItem('zenith_auth', 'true');
-      setError('');
-    } else {
-      setError('Invalid Protocol Access Code');
+      loadChatHistory(session.$id);
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await account.deleteSession('current');
+      setIsAuthenticated(false);
+      setUser(null);
+      setMessages([]);
+    } catch (err) {
+      console.error('Logout failed:', err);
     }
   };
 
@@ -109,20 +202,67 @@ export default function Home() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsProcessing(true);
-    setActiveView('chat'); // Switch to chat view on mobile when sending
+    setActiveView('chat');
+
+    await saveMessage('user', userMessage);
 
     try {
-      // Step 1: Moderator
-      const modResponse = await callLightningAI(`Respond to this query as a Moderator of the Zenith Council: "${userMessage}"`, DEFAULT_COUNCIL[1].model);
-      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[1].name, content: modResponse }]);
+      let context = `User: ${userMessage}`;
 
-      // Step 2: Skeptic
-      const skepticResponse = await callLightningAI(`As the Skeptic, challenge the following moderator's stance on "${userMessage}": "${modResponse}"`, DEFAULT_COUNCIL[0].model);
-      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[0].name, content: skepticResponse }]);
+      if (councilMode === 'solo') {
+        setActiveThinker(DEFAULT_COUNCIL[1].name);
+        const { content, reasoning } = await callLightningAI(userMessage, DEFAULT_COUNCIL[1].model, true);
+        setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[1].name, content, reasoning }]);
+        await saveMessage('assistant', content, DEFAULT_COUNCIL[1].name);
+        setActiveThinker(null);
+      } else {
+        // Step 1: Moderator
+        setActiveThinker(DEFAULT_COUNCIL[1].name);
+        const modResult = await callLightningAI(
+          `Respond to this query as a Moderator of the Zenith Council. Be precise and thorough. Query: "${userMessage}"`, 
+          DEFAULT_COUNCIL[1].model,
+          true
+        );
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          sender: DEFAULT_COUNCIL[1].name, 
+          content: modResult.content, 
+          reasoning: modResult.reasoning 
+        }]);
+        await saveMessage('assistant', modResult.content, DEFAULT_COUNCIL[1].name);
+        context += `\nModerator: ${modResult.content}`;
 
-      // Step 3: Visionary
-      const visionaryResponse = await callLightningAI(`As the Visionary, synthesize a futuristic solution considering the debate between the Moderator and the Skeptic on "${userMessage}". Moderator: "${modResponse}". Skeptic: "${skepticResponse}"`, DEFAULT_COUNCIL[2].model);
-      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[2].name, content: visionaryResponse }]);
+        // Step 2: Skeptic
+        setActiveThinker(DEFAULT_COUNCIL[0].name);
+        const skepticPrompt = antiHallucination 
+          ? `As the Skeptic, your job is to prevent hallucination. Fact-check the Moderator's response to "${userMessage}": "${modResult.content}". Point out any potential inaccuracies or unverified claims. If everything looks good, challenge the logic instead.`
+          : `As the Skeptic, challenge the Moderator's stance on "${userMessage}": "${modResult.content}"`;
+        
+        const skepticResult = await callLightningAI(skepticPrompt, DEFAULT_COUNCIL[0].model, false);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          sender: DEFAULT_COUNCIL[0].name, 
+          content: skepticResult.content 
+        }]);
+        await saveMessage('assistant', skepticResult.content, DEFAULT_COUNCIL[0].name);
+        context += `\nSkeptic: ${skepticResult.content}`;
+
+        // Step 3: Visionary
+        setActiveThinker(DEFAULT_COUNCIL[2].name);
+        const visionaryResult = await callLightningAI(
+          `As the Visionary, synthesize the final definitive answer considering the debate. User: "${userMessage}". Moderator: "${modResult.content}". Skeptic: "${skepticResult.content}". Resolve any conflicts and provide a futuristic, grounded solution.`, 
+          DEFAULT_COUNCIL[2].model,
+          true
+        );
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          sender: DEFAULT_COUNCIL[2].name, 
+          content: visionaryResult.content,
+          reasoning: visionaryResult.reasoning
+        }]);
+        await saveMessage('assistant', visionaryResult.content, DEFAULT_COUNCIL[2].name);
+        setActiveThinker(null);
+      }
       
     } catch (err: any) {
       setError(err.message || 'Transmission failed');
@@ -131,7 +271,7 @@ export default function Home() {
     }
   };
 
-  const callLightningAI = async (prompt: string, model: string) => {
+  const callLightningAI = async (prompt: string, model: string, includeReasoning: boolean = false) => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
@@ -141,6 +281,7 @@ export default function Home() {
         prompt: prompt,
         model: model,
         apiKey: apiKey,
+        includeReasoning: includeReasoning && showReasoning
       }),
     });
 
@@ -150,7 +291,10 @@ export default function Home() {
     }
 
     const data = await response.json();
-    return data.choices[0].message.content;
+    return {
+      content: data.choices[0].message.content,
+      reasoning: data.choices[0].message.reasoning || data.choices[0].message.thinking || null
+    };
   };
 
   if (!isAuthenticated) {
@@ -170,6 +314,19 @@ export default function Home() {
           
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
+              <label className="text-[10px] text-white/40 uppercase tracking-wider ml-1">Email Address</label>
+              <div className="relative">
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter email..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50 transition-all pl-10"
+                />
+                <MessageSquare className="absolute left-3 top-3.5 w-4 h-4 text-white/20" />
+              </div>
+            </div>
+            <div className="space-y-2">
               <label className="text-[10px] text-white/40 uppercase tracking-wider ml-1">Access Code</label>
               <div className="relative">
                 <input 
@@ -183,10 +340,23 @@ export default function Home() {
               </div>
             </div>
             {error && <p className="text-red-400 text-[10px] text-center font-mono">{error}</p>}
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2">
-              <Zap className="w-4 h-4" />
-              AUTHORIZE
+            <button type="submit" disabled={isProcessing} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2">
+              {isProcessing ? 'SYNCHRONIZING...' : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  AUTHORIZE
+                </>
+              )}
             </button>
+            <div className="text-center">
+              <button 
+                type="button" 
+                onClick={handleLogin}
+                className="text-[10px] text-white/20 hover:text-white/40 uppercase tracking-widest"
+              >
+                Or Continue Anonymously
+              </button>
+            </div>
           </form>
         </GlassCard>
       </main>
@@ -255,6 +425,31 @@ export default function Home() {
         </div>
         
         <div className="flex gap-2 lg:gap-4">
+          <div className="hidden lg:flex items-center gap-2 glass-panel px-4 py-2 rounded-full border border-white/5">
+            <button 
+              onClick={toggleReasoning}
+              className={`text-[10px] uppercase tracking-widest transition-all ${showReasoning ? 'text-blue-400' : 'text-white/20'}`}
+              title="Toggle Reasoning"
+            >
+              Thinking
+            </button>
+            <div className="w-[1px] h-3 bg-white/10" />
+            <button 
+              onClick={toggleAntiHallucination}
+              className={`text-[10px] uppercase tracking-widest transition-all ${antiHallucination ? 'text-emerald-400' : 'text-white/20'}`}
+              title="Toggle Anti-Hallucination"
+            >
+              Verified
+            </button>
+            <div className="w-[1px] h-3 bg-white/10" />
+            <button 
+              onClick={toggleCouncilMode}
+              className={`text-[10px] uppercase tracking-widest transition-all ${councilMode === 'debate' ? 'text-indigo-400' : 'text-white/20'}`}
+              title="Toggle Council Debate"
+            >
+              Council
+            </button>
+          </div>
           <button 
             onClick={performHealthCheck}
             className="hidden lg:flex px-4 py-2 glass-panel rounded-full text-[10px] text-emerald-400 hover:text-emerald-300 transition-all uppercase tracking-widest border border-emerald-500/20"
@@ -262,14 +457,14 @@ export default function Home() {
             Debug
           </button>
           <button 
-            onClick={() => { localStorage.removeItem('lightning_api_key'); setIsConfigured(false); }}
+            onClick={handleLogout}
             className="px-3 py-2 glass-panel rounded-full text-[10px] text-white/40 hover:text-white/80 transition-all uppercase tracking-widest"
           >
-            Reset
+            Logout
           </button>
           <div className="hidden lg:flex px-4 py-2 glass-panel rounded-full items-center gap-2 text-xs text-white/60">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            ONLINE
+            {user?.email || 'ANONYMOUS'}
           </div>
         </div>
       </motion.header>
@@ -292,18 +487,29 @@ export default function Home() {
             
             <div className="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
               {DEFAULT_COUNCIL.map((member) => (
-                <div key={member.id} className="p-3 bg-white/5 rounded-xl border border-white/5 group hover:border-white/10 transition-all">
+                <div key={member.id} className={`p-3 bg-white/5 rounded-xl border transition-all ${activeThinker === member.name ? 'border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)] bg-blue-500/5' : 'border-white/5'}`}>
                   <div className="flex justify-between items-start mb-1">
                     <span className={`text-[10px] font-bold ${member.color} tracking-tighter uppercase`}>{member.name}</span>
                     <div className="flex items-center gap-1.5">
-                      {modelHealth[member.id] === 'checking' && (
-                        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
-                      )}
-                      {modelHealth[member.id] === 'online' && (
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
-                      )}
-                      {modelHealth[member.id] === 'offline' && (
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                      {activeThinker === member.name ? (
+                        <motion.div 
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        >
+                          <Zap className="w-3 h-3 text-blue-400" />
+                        </motion.div>
+                      ) : (
+                        <>
+                          {modelHealth[member.id] === 'checking' && (
+                            <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
+                          )}
+                          {modelHealth[member.id] === 'online' && (
+                            <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
+                          )}
+                          {modelHealth[member.id] === 'offline' && (
+                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                          )}
+                        </>
                       )}
                       <ActivityStatus />
                     </div>
@@ -363,7 +569,7 @@ export default function Home() {
               )}
             </div>
             
-            <div className="flex-1 overflow-y-auto mb-4 space-y-6 pr-2 custom-scrollbar">
+            <div id="chat-stream" className="flex-1 overflow-y-auto mb-4 space-y-6 pr-2 custom-scrollbar">
               {messages.length === 0 ? (
                 <div className="space-y-4 font-mono text-[10px] text-white/30 p-4 border border-white/5 rounded-xl bg-white/[0.02]">
                   <p className="text-emerald-400/80">&gt; System initialized v1.0.4</p>
@@ -392,6 +598,19 @@ export default function Home() {
                       <span className="text-[8px] text-white/10 font-mono">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                     </div>
                     <div className={`text-[12px] leading-relaxed text-white/80 whitespace-pre-wrap p-3 rounded-xl ${msg.role === 'user' ? 'bg-white/5 border border-white/5' : 'bg-blue-500/5 border border-blue-500/10'}`}>
+                      {msg.reasoning && showReasoning && (
+                        <motion.div 
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          className="mb-3 p-3 bg-white/5 border-l-2 border-blue-500/30 rounded-r-lg text-[10px] font-mono text-white/40 italic overflow-hidden"
+                        >
+                          <div className="flex items-center gap-2 mb-1 opacity-60">
+                            <Cpu className="w-3 h-3" />
+                            <span className="uppercase tracking-widest text-[8px]">Cognitive Process</span>
+                          </div>
+                          {msg.reasoning}
+                        </motion.div>
+                      )}
                       {msg.content}
                     </div>
                   </motion.div>
