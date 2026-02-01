@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { account, databases, DB_ID, CHAT_COLLECTION_ID, COUNCIL_CONFIG_COLLECTION_ID, DEBATE_HISTORY_COLLECTION_ID } from '@/lib/appwrite';
 import { ID, Query } from 'appwrite';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MessageSquare, 
@@ -248,6 +249,11 @@ export default function Home() {
               type="password" value={password} onChange={(e) => setPassword(e.target.value)}
               placeholder="Password" className="w-full px-4 py-3 rounded-xl text-sm"
             />
+            <div className="flex justify-between items-center text-xs text-[var(--text-muted)] px-1">
+                <Link href="/forgot-password" className="hover:text-[var(--foreground)] transition-colors">
+                    Forgot Password?
+                </Link>
+            </div>
             {error && <p className="text-red-500 text-xs text-center">{error}</p>}
             <button type="submit" disabled={isProcessing} className="w-full bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white py-3 rounded-xl text-sm font-semibold transition-all flex justify-center items-center gap-2">
               {isProcessing ? <Zap className="w-4 h-4 animate-spin" /> : 'Enter System'}
@@ -255,6 +261,12 @@ export default function Home() {
             <button type="button" onClick={() => handleLogin({ preventDefault: () => {} } as any)} className="w-full text-xs text-[var(--text-muted)] hover:text-[var(--foreground)]">
               Continue Anonymously
             </button>
+            <div className="text-center text-xs text-[var(--text-muted)] mt-4">
+                Don't have an account? {' '}
+                <Link href="/signup" className="text-[var(--accent)] font-semibold hover:underline">
+                    Sign Up
+                </Link>
+            </div>
           </form>
         </div>
       </main>
