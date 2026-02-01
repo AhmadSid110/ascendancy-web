@@ -1,21 +1,23 @@
 import { Client, Account, Databases, Storage, Query } from 'appwrite';
 
 const client = new Client();
-const PROJECT_ID = '697e89ff001ad611e97a'; // Updated Project ID
+const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
+const DB_ID = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
 
 client
-    .setEndpoint('https://sgp.cloud.appwrite.io/v1') // Updated Endpoint
+    .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || 'https://sgp.cloud.appwrite.io/v1')
     .setProject(PROJECT_ID);
 
 const account = new Account(client);
 const databases = new Databases(client);
 const storage = new Storage(client);
 
-// Collections IDs (will be created if they don't exist)
+// Collections IDs
 const COLLECTIONS = {
     COUNCIL_CONFIG: 'council_config',
     DEBATE_HISTORY: 'debate_history',
-    USERS: 'users'
+    CHAT_HISTORY: 'chat_history',
+    SECRETS: 'user_secrets'
 };
 
 // Initialize collections
@@ -23,7 +25,7 @@ async function initCollections() {
     try {
         // Create council_config collection if it doesn't exist
         await databases.createCollection(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             'Council Configurations',
             ['role:all'],
@@ -32,7 +34,7 @@ async function initCollections() {
 
         // Add attributes for council_config
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             'configId',
             255,
@@ -40,7 +42,7 @@ async function initCollections() {
         ).catch(() => {});
         
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             'moderatorModel',
             255,
@@ -48,7 +50,7 @@ async function initCollections() {
         ).catch(() => {});
         
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             'skepticModel',
             255,
@@ -56,7 +58,7 @@ async function initCollections() {
         ).catch(() => {});
         
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             'visionaryModel',
             255,
@@ -65,7 +67,7 @@ async function initCollections() {
 
         // Create debate_history collection if it doesn't exist
         await databases.createCollection(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             'Debate History',
             ['role:all'],
@@ -74,7 +76,7 @@ async function initCollections() {
 
         // Add attributes for debate_history
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             'debateId',
             255,
@@ -82,7 +84,7 @@ async function initCollections() {
         ).catch(() => {});
         
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             'topic',
             1000,
@@ -90,7 +92,7 @@ async function initCollections() {
         ).catch(() => {});
         
         await databases.createStringAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             'result',
             5000,
@@ -98,7 +100,7 @@ async function initCollections() {
         ).catch(() => {});
         
         await databases.createDatetimeAttribute(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             'timestamp',
             true
@@ -153,7 +155,7 @@ async function logout() {
 async function saveCouncilConfig(config) {
     try {
         const response = await databases.createDocument(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             'unique()',
             {
@@ -175,7 +177,7 @@ async function getCouncilConfig(configId = 'default') {
     try {
         // Find the config document by configId
         const response = await databases.listDocuments(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             [
                 Query.equal('configId', configId)
@@ -196,7 +198,7 @@ async function updateCouncilConfig(configId, updatedConfig) {
     try {
         // Find the document first
         const existingDocs = await databases.listDocuments(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             [
                 Query.equal('configId', configId)
@@ -210,7 +212,7 @@ async function updateCouncilConfig(configId, updatedConfig) {
         const docId = existingDocs.documents[0].$id;
         
         const response = await databases.updateDocument(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.COUNCIL_CONFIG,
             docId,
             {
@@ -231,7 +233,7 @@ async function updateCouncilConfig(configId, updatedConfig) {
 async function saveDebateHistory(debate) {
     try {
         const response = await databases.createDocument(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             'unique()',
             {
@@ -252,7 +254,7 @@ async function saveDebateHistory(debate) {
 async function getDebateHistory(limit = 20, offset = 0) {
     try {
         const response = await databases.listDocuments(
-            PROJECT_ID,
+            DB_ID,
             COLLECTIONS.DEBATE_HISTORY,
             [
                 Query.orderDesc('$createdAt'),

@@ -363,7 +363,6 @@ export default function Home() {
           body: JSON.stringify({
             prompt: "Say 'ok'",
             model: member.model,
-            apiKey: apiKey,
           }),
         });
         if (response.ok) {
@@ -396,6 +395,27 @@ export default function Home() {
       loadChatHistory(session.$id);
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSignUp = async () => {
+    if (!email || !password) {
+      setError('Email and Password required for registration');
+      return;
+    }
+    setError('');
+    setIsProcessing(true);
+    try {
+      await account.create(ID.unique(), email, password);
+      await account.createEmailPasswordSession(email, password);
+      const session = await account.get();
+      setUser(session);
+      setIsAuthenticated(true);
+      loadChatHistory(session.$id);
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
     } finally {
       setIsProcessing(false);
     }
@@ -556,7 +576,6 @@ export default function Home() {
       body: JSON.stringify({
         prompt: prompt,
         model: model,
-        apiKey: apiKey,
         includeReasoning: includeReasoning && showReasoning
       }),
     });
@@ -616,18 +635,32 @@ export default function Home() {
               </div>
             </div>
             {error && <p className="text-red-400 text-[10px] text-center font-mono">{error}</p>}
-            <button type="submit" disabled={isProcessing} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2">
-              {isProcessing ? 'SYNCHRONIZING...' : (
-                <>
-                  <Zap className="w-4 h-4" />
-                  AUTHORIZE
-                </>
-              )}
-            </button>
+            <div className="flex gap-3">
+              <button type="submit" disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2">
+                {isProcessing ? '...' : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    LOGIN
+                  </>
+                )}
+              </button>
+              <button 
+                type="button"
+                onClick={handleSignUp}
+                disabled={isProcessing}
+                className="flex-1 bg-white/5 border border-white/10 hover:bg-white/10 text-white py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2"
+              >
+                REGISTER
+              </button>
+            </div>
             <div className="text-center">
               <button 
                 type="button" 
-                onClick={handleLogin}
+                onClick={() => {
+                  setEmail('');
+                  setPassword('');
+                  handleLogin({ preventDefault: () => {} } as any);
+                }}
                 className="text-[10px] text-white/20 hover:text-white/40 uppercase tracking-widest"
               >
                 Or Continue Anonymously
