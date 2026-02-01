@@ -20,8 +20,17 @@ export default function Signup() {
     setError('');
     setIsProcessing(true);
     try {
-      await account.create(ID.unique(), email, password, name);
-      await account.createEmailPasswordSession(email, password);
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Signup failed');
+      
+      // Sync client side (optional)
+      try { await account.createEmailPasswordSession(email, password); } catch(e) {}
+      
       router.push('/');
     } catch (err: any) {
       setError(err.message);

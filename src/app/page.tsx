@@ -152,8 +152,22 @@ export default function Home() {
     setError('');
     setIsProcessing(true);
     try {
-      if (email && password) await account.createEmailPasswordSession(email, password);
-      else await account.createAnonymousSession();
+      if (email && password) {
+        // Use server-side login to set session cookie
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        
+        // Sync client-side SDK (optional, but good for local state)
+        await account.createEmailPasswordSession(email, password);
+      } else {
+        await account.createAnonymousSession();
+      }
+      
       const session = await account.get();
       setUser(session);
       setIsAuthenticated(true);
@@ -166,6 +180,7 @@ export default function Home() {
   const handleLogout = async () => {
     try {
       await account.deleteSession('current');
+      await fetch('/api/auth/session', { method: 'DELETE' });
     } catch (e) { console.error('Logout error', e); }
     setIsAuthenticated(false);
     setUser(null);
@@ -312,6 +327,29 @@ export default function Home() {
       const newVal = !debugMode;
       setDebugMode(newVal);
       localStorage.setItem('zenith_debug', newVal.toString());
+  };
+
+  const [pinging, setPinging] = useState<string | null>(null);
+  const [pingResults, setPingResults] = useState<Record<string, { success: boolean, latency?: number, error?: string }>>({});
+
+  const pingModel = async (provider: 'lightning' | 'openai') => {
+    const key = provider === 'lightning' ? lightningKey : openaiKey;
+    const model = provider === 'lightning' ? 'gpt-oss-120b' : 'gpt-4o-mini';
+    
+    setPinging(provider);
+    try {
+        const res = await fetch('/api/ping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, apiKey: key, provider })
+        });
+        const data = await res.json();
+        setPingResults(prev => ({ ...prev, [provider]: data }));
+    } catch (err: any) {
+        setPingResults(prev => ({ ...prev, [provider]: { success: false, error: err.message } }));
+    } finally {
+        setPinging(null);
+    }
   };
 
   // Login Screen
@@ -513,12 +551,40 @@ export default function Home() {
               {showSettings && (
                   <div className="p-3 bg-[var(--card-border)]/50 rounded-xl space-y-3 mt-2 animate-in slide-in-from-top-2">
                       <div>
-                        <label className="text-[10px] uppercase text-[var(--text-muted)]">Lightning AI Key</label>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] uppercase text-[var(--text-muted)]">Lightning AI Key</label>
+                            <button 
+                                onClick={() => pingModel('lightning')}
+                                disabled={!!pinging || !lightningKey}
+                                className="text-[10px] text-[var(--accent)] hover:underline flex items-center gap-1"
+                            >
+                                {pinging === 'lightning' ? 'Pinging...' : 'Ping'}
+                            </button>
+                        </div>
                         <input type="password" value={lightningKey} onChange={e => setLightningKey(e.target.value)} className="w-full bg-[var(--background)] rounded p-1 text-xs border border-[var(--card-border)]" placeholder="sk-..." />
+                        {pingResults.lightning && (
+                            <p className={`text-[9px] mt-1 ${pingResults.lightning.success ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {pingResults.lightning.success ? `Success (${pingResults.lightning.latency}ms)` : `Error: ${pingResults.lightning.error}`}
+                            </p>
+                        )}
                       </div>
                       <div>
-                        <label className="text-[10px] uppercase text-[var(--text-muted)]">OpenAI Key</label>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] uppercase text-[var(--text-muted)]">OpenAI Key</label>
+                            <button 
+                                onClick={() => pingModel('openai')}
+                                disabled={!!pinging || !openaiKey}
+                                className="text-[10px] text-[var(--accent)] hover:underline flex items-center gap-1"
+                            >
+                                {pinging === 'openai' ? 'Pinging...' : 'Ping'}
+                            </button>
+                        </div>
                         <input type="password" value={openaiKey} onChange={e => setOpenaiKey(e.target.value)} className="w-full bg-[var(--background)] rounded p-1 text-xs border border-[var(--card-border)]" placeholder="sk-..." />
+                        {pingResults.openai && (
+                            <p className={`text-[9px] mt-1 ${pingResults.openai.success ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {pingResults.openai.success ? `Success (${pingResults.openai.latency}ms)` : `Error: ${pingResults.openai.error}`}
+                            </p>
+                        )}
                       </div>
                       <button onClick={handleSaveApiKeys} className="w-full bg-[var(--accent)] text-white text-xs py-1.5 rounded hover:bg-[var(--accent)]/90">Save Keys</button>
                   </div>
