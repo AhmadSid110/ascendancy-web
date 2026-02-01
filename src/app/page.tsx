@@ -34,6 +34,8 @@ export default function Home() {
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [modelHealth, setModelHealth] = useState<Record<string, 'online' | 'offline' | 'checking'>>({});
+  const [activeView, setActiveView] = useState<'council' | 'chat' | 'settings'>('chat');
 
   // Authentication check
   useEffect(() => {
@@ -48,6 +50,34 @@ export default function Home() {
       setIsConfigured(true);
     }
   }, []);
+
+  const performHealthCheck = async () => {
+    const results: Record<string, 'online' | 'offline' | 'checking'> = {};
+    DEFAULT_COUNCIL.forEach(m => results[m.id] = 'checking');
+    setModelHealth({...results});
+
+    for (const member of DEFAULT_COUNCIL) {
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: "Say 'ok'",
+            model: member.model,
+            apiKey: apiKey,
+          }),
+        });
+        if (response.ok) {
+          results[member.id] = 'online';
+        } else {
+          results[member.id] = 'offline';
+        }
+      } catch (e) {
+        results[member.id] = 'offline';
+      }
+      setModelHealth({...results});
+    }
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,14 +109,20 @@ export default function Home() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsProcessing(true);
+    setActiveView('chat'); // Switch to chat view on mobile when sending
 
     try {
-      // Simulate council discussion or implement actual API call
-      // Since this is a "Council", we should ideally call multiple models
-      // For now, let's implement a sequential discussion
-      
-      const moderatorResponse = await callLightningAI(userMessage, DEFAULT_COUNCIL[1].model);
-      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[1].name, content: moderatorResponse }]);
+      // Step 1: Moderator
+      const modResponse = await callLightningAI(`Respond to this query as a Moderator of the Zenith Council: "${userMessage}"`, DEFAULT_COUNCIL[1].model);
+      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[1].name, content: modResponse }]);
+
+      // Step 2: Skeptic
+      const skepticResponse = await callLightningAI(`As the Skeptic, challenge the following moderator's stance on "${userMessage}": "${modResponse}"`, DEFAULT_COUNCIL[0].model);
+      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[0].name, content: skepticResponse }]);
+
+      // Step 3: Visionary
+      const visionaryResponse = await callLightningAI(`As the Visionary, synthesize a futuristic solution considering the debate between the Moderator and the Skeptic on "${userMessage}". Moderator: "${modResponse}". Skeptic: "${skepticResponse}"`, DEFAULT_COUNCIL[2].model);
+      setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[2].name, content: visionaryResponse }]);
       
     } catch (err: any) {
       setError(err.message || 'Transmission failed');
@@ -197,7 +233,7 @@ export default function Home() {
   }
 
   return (
-    <main className="relative min-h-screen flex flex-col items-center justify-center p-8 overflow-hidden bg-black">
+    <main className="relative min-h-screen flex flex-col items-center justify-center p-4 lg:p-8 overflow-hidden bg-black">
       {/* Background Ambient Lights */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
@@ -206,7 +242,7 @@ export default function Home() {
       <motion.header 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="absolute top-8 left-8 right-8 flex justify-between items-center z-10"
+        className="fixed top-4 lg:top-8 left-4 lg:left-8 right-4 lg:right-8 flex justify-between items-center z-50 bg-black/50 backdrop-blur-md p-4 rounded-2xl border border-white/5 lg:bg-transparent lg:backdrop-blur-none lg:p-0 lg:border-none lg:static"
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center border border-blue-500/30">
@@ -218,40 +254,59 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="flex gap-4">
+        <div className="flex gap-2 lg:gap-4">
+          <button 
+            onClick={performHealthCheck}
+            className="hidden lg:flex px-4 py-2 glass-panel rounded-full text-[10px] text-emerald-400 hover:text-emerald-300 transition-all uppercase tracking-widest border border-emerald-500/20"
+          >
+            Debug
+          </button>
           <button 
             onClick={() => { localStorage.removeItem('lightning_api_key'); setIsConfigured(false); }}
-            className="px-4 py-2 glass-panel rounded-full text-[10px] text-white/40 hover:text-white/80 transition-all uppercase tracking-widest"
+            className="px-3 py-2 glass-panel rounded-full text-[10px] text-white/40 hover:text-white/80 transition-all uppercase tracking-widest"
           >
-            Reset Key
+            Reset
           </button>
-          <div className="px-4 py-2 glass-panel rounded-full flex items-center gap-2 text-xs text-white/60">
+          <div className="hidden lg:flex px-4 py-2 glass-panel rounded-full items-center gap-2 text-xs text-white/60">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            COUNCIL ACTIVE
+            ONLINE
           </div>
         </div>
       </motion.header>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full max-w-7xl z-10 h-[70vh]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 w-full max-w-7xl z-10 h-full lg:h-[70vh] mt-24 lg:mt-0">
         
-        {/* Left Column: Council Members */}
-        <div className="lg:col-span-3 flex flex-col gap-6 overflow-hidden">
+        {/* Left Column: Council Members (Visible on Desktop or when activeView is 'council') */}
+        <div className={`${activeView === 'council' ? 'flex' : 'hidden lg:flex'} lg:col-span-3 flex-col gap-6 overflow-hidden h-[60vh] lg:h-full`}>
           <GlassCard className="flex flex-col h-full">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 text-blue-400">
                 <Layers className="w-4 h-4" />
-                <span className="text-xs font-semibold uppercase tracking-wider">Council</span>
+                <span className="text-xs font-semibold uppercase tracking-wider">Council members</span>
               </div>
-              <Plus className="w-3 h-3 text-white/20 cursor-not-allowed" />
+              <button onClick={performHealthCheck} className="lg:hidden p-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                <Zap className="w-3 h-3 text-blue-400" />
+              </button>
             </div>
             
-            <div className="flex-1 space-y-4 overflow-y-auto pr-2">
+            <div className="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
               {DEFAULT_COUNCIL.map((member) => (
                 <div key={member.id} className="p-3 bg-white/5 rounded-xl border border-white/5 group hover:border-white/10 transition-all">
                   <div className="flex justify-between items-start mb-1">
-                    <span className={`text-[10px] font-bold ${member.color} tracking-tighter`}>{member.name}</span>
-                    <ActivityStatus />
+                    <span className={`text-[10px] font-bold ${member.color} tracking-tighter uppercase`}>{member.name}</span>
+                    <div className="flex items-center gap-1.5">
+                      {modelHealth[member.id] === 'checking' && (
+                        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
+                      )}
+                      {modelHealth[member.id] === 'online' && (
+                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
+                      )}
+                      {modelHealth[member.id] === 'offline' && (
+                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                      )}
+                      <ActivityStatus />
+                    </div>
                   </div>
                   <div className="text-[9px] text-white/40 font-mono mb-2 uppercase">{member.role}</div>
                   <div className="text-[8px] text-white/20 truncate font-mono">{member.model}</div>
@@ -261,8 +316,8 @@ export default function Home() {
           </GlassCard>
         </div>
 
-        {/* Center: Core Visualization */}
-        <div className="lg:col-span-6 flex flex-col items-center justify-center">
+        {/* Center: Core Visualization (Only on Desktop or specific view) */}
+        <div className={`${activeView === 'chat' ? 'hidden lg:flex' : 'hidden lg:flex'} lg:col-span-6 flex-col items-center justify-center`}>
           <CoreNode />
           <AnimatePresence>
             {!isProcessing && messages.length === 0 && (
@@ -286,67 +341,65 @@ export default function Home() {
               </motion.div>
             )}
           </AnimatePresence>
-          
-          {/* Active Discussion View */}
-          <div className="w-full mt-8 overflow-y-auto max-h-[300px] px-4 hidden lg:block">
-            {messages.slice(-2).map((msg, i) => (
-              <motion.div 
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
-              >
-                <span className="text-[10px] text-blue-400/60 uppercase font-mono mb-1 block">
-                  {msg.sender || 'YOU'}
-                </span>
-                <p className="text-xs text-white/70 bg-white/5 rounded-2xl p-3 inline-block max-w-[80%] border border-white/5">
-                  {msg.content}
-                </p>
-              </motion.div>
-            ))}
-          </div>
         </div>
 
         {/* Right Column: Console/Chat Interface */}
-        <div className="lg:col-span-3 flex flex-col gap-6 overflow-hidden">
-          <GlassCard className="h-full flex flex-col overflow-hidden">
-            <div className="flex items-center gap-2 text-emerald-400 mb-4 flex-shrink-0">
-              <Terminal className="w-4 h-4" />
-              <span className="text-xs font-semibold uppercase tracking-wider">Protocol Stream</span>
+        <div className={`${activeView === 'chat' ? 'flex' : 'hidden lg:flex'} lg:col-span-6 flex flex-col gap-6 overflow-hidden h-[70vh] lg:h-full`}>
+          <GlassCard className="h-full flex flex-col overflow-hidden relative">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Terminal className="w-4 h-4" />
+                <span className="text-xs font-semibold uppercase tracking-wider">Protocol Stream</span>
+              </div>
+              {isProcessing && (
+                <div className="flex gap-1.5 items-center">
+                  <span className="text-[8px] text-blue-400 animate-pulse font-mono">PROCESSING TRANSMISSION</span>
+                  <div className="flex gap-1">
+                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" />
+                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+                  </div>
+                </div>
+              )}
             </div>
             
-            <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto mb-4 space-y-6 pr-2 custom-scrollbar">
               {messages.length === 0 ? (
-                <div className="space-y-2 font-mono text-[10px] text-white/30">
-                  <p className="text-emerald-400/80">&gt; System initialized</p>
-                  <p>&gt; Model grid synchronized</p>
-                  <p>&gt; Ready for input...</p>
+                <div className="space-y-4 font-mono text-[10px] text-white/30 p-4 border border-white/5 rounded-xl bg-white/[0.02]">
+                  <p className="text-emerald-400/80">&gt; System initialized v1.0.4</p>
+                  <p>&gt; Model grid synchronized with Lightning AI</p>
+                  <p>&gt; Encryption protocols active</p>
+                  <p>&gt; Waiting for mission parameters...</p>
                 </div>
               ) : (
                 messages.map((msg, i) => (
-                  <div key={i} className="space-y-1">
+                  <motion.div 
+                    key={i} 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="space-y-2"
+                  >
                     <div className="flex items-center gap-2">
-                      <span className={`text-[9px] font-bold uppercase tracking-widest ${msg.role === 'user' ? 'text-white/40' : 'text-blue-400'}`}>
+                      <span className={`text-[9px] font-bold uppercase tracking-widest ${
+                        msg.role === 'user' ? 'text-white/40' : 
+                        msg.sender === DEFAULT_COUNCIL[0].name ? 'text-red-400' :
+                        msg.sender === DEFAULT_COUNCIL[1].name ? 'text-blue-400' :
+                        'text-emerald-400'
+                      }`}>
                         {msg.sender || 'Ahmad'}
                       </span>
-                      <div className="flex-1 h-[1px] bg-white/5" />
+                      <div className="flex-1 h-[1px] bg-white/10" />
+                      <span className="text-[8px] text-white/10 font-mono">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                     </div>
-                    <p className="text-[11px] leading-relaxed text-white/80 whitespace-pre-wrap">
+                    <div className={`text-[12px] leading-relaxed text-white/80 whitespace-pre-wrap p-3 rounded-xl ${msg.role === 'user' ? 'bg-white/5 border border-white/5' : 'bg-blue-500/5 border border-blue-500/10'}`}>
                       {msg.content}
-                    </p>
-                  </div>
+                    </div>
+                  </motion.div>
                 ))
-              )}
-              {isProcessing && (
-                <div className="flex gap-1 py-2">
-                  <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" />
-                  <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]" />
-                  <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]" />
-                </div>
               )}
             </div>
 
-            <div className="flex-shrink-0 pt-4 border-t border-white/5">
+            <div className="flex-shrink-0 pt-4">
               <form onSubmit={handleSendMessage} className="relative">
                 <input 
                   type="text" 
@@ -354,10 +407,10 @@ export default function Home() {
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Enter transmission..."
                   disabled={isProcessing}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[11px] focus:outline-none focus:border-blue-500/50 transition-all pr-10 disabled:opacity-50"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-[12px] focus:outline-none focus:border-blue-500/50 transition-all pr-12 disabled:opacity-50 font-mono"
                 />
-                <button type="submit" disabled={!input.trim() || isProcessing} className="absolute right-2 top-2 p-1.5 bg-blue-500 rounded-lg text-white hover:bg-blue-400 disabled:opacity-50 disabled:bg-white/10 transition-all">
-                  <Send className="w-3.5 h-3.5" />
+                <button type="submit" disabled={!input.trim() || isProcessing} className="absolute right-2 top-2 bottom-2 px-3 bg-blue-600 rounded-lg text-white hover:bg-blue-500 disabled:opacity-50 disabled:bg-white/10 transition-all">
+                  <Send className="w-4 h-4" />
                 </button>
               </form>
             </div>
@@ -365,15 +418,24 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Bottom Nav */}
+      {/* Mobile Navigation */}
       <motion.nav 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="absolute bottom-8 flex gap-4"
+        className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 flex gap-4 glass-panel p-2 rounded-2xl border border-white/10 z-50 backdrop-blur-xl bg-black/40"
       >
-        <NavButton icon={<MessageSquare className="w-4 h-4" />} active />
-        <NavButton icon={<Layers className="w-4 h-4" />} />
-        <NavButton icon={<Cpu className="w-4 h-4" />} />
+        <button 
+          onClick={() => setActiveView('council')}
+          className={`p-4 rounded-xl transition-all ${activeView === 'council' ? 'bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'text-white/40'}`}
+        >
+          <Layers className="w-5 h-5" />
+        </button>
+        <button 
+          onClick={() => setActiveView('chat')}
+          className={`p-4 rounded-xl transition-all ${activeView === 'chat' ? 'bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'text-white/40'}`}
+        >
+          <MessageSquare className="w-5 h-5" />
+        </button>
       </motion.nav>
     </main>
   );
