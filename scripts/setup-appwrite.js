@@ -2,7 +2,7 @@ const { Client, Databases, ID } = require('node-appwrite');
 require('dotenv').config({ path: '.env.local' });
 
 const client = new Client()
-    .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || 'https://sgp.cloud.appwrite.io/v1')
+    .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1')
     .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a')
     .setKey(process.env.APPWRITE_API_KEY);
 
