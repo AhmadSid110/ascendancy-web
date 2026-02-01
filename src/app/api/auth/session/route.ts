@@ -9,7 +9,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Session secret is required' }, { status: 400 });
     }
 
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
     const cookieName = `a_session_${projectId}`;
 
     const response = NextResponse.json({ success: true });
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE() {
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
   const cookieName = `a_session_${projectId}`;
   
   (await cookies()).delete(cookieName);

@@ -3,12 +3,12 @@ import { createSessionClient } from '@/lib/appwrite-server';
 
 async function testAI(apiKey: string, model: string, provider: 'lightning' | 'openai') {
   let url = 'https://lightning.ai/api/v1/chat/completions';
-  let fullModel = model;
+  let fullModel = model || '';
 
   if (provider === 'openai') {
     url = 'https://api.openai.com/v1/chat/completions';
-  } else {
-    fullModel = model.startsWith('lightning-ai/') ? model : `lightning-ai/${model}`;
+  } else if (fullModel) {
+    fullModel = fullModel.startsWith('lightning-ai/') ? fullModel : `lightning-ai/${fullModel}`;
   }
   
   const response = await fetch(url, {

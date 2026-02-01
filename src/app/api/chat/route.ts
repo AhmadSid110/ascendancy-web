@@ -11,15 +11,13 @@ const DEFAULT_COUNCIL = {
 
 async function callAI(apiKey: string, model: string, messages: any[], provider: 'lightning' | 'openai') {
   let url = 'https://lightning.ai/api/v1/chat/completions';
-  let fullModel = model;
+  let fullModel = model || '';
 
   if (provider === 'openai') {
     url = 'https://api.openai.com/v1/chat/completions';
-    // OpenAI models don't need a prefix usually, but we keep it if user entered it
-    // If user entered "openai/gpt-4", strip "openai/" if needed, but usually just "gpt-4"
-  } else {
+  } else if (fullModel) {
     // Lightning
-    fullModel = model.startsWith('lightning-ai/') ? model : `lightning-ai/${model}`;
+    fullModel = fullModel.startsWith('lightning-ai/') ? fullModel : `lightning-ai/${fullModel}`;
   }
   
   const response = await fetch(url, {
@@ -109,7 +107,7 @@ export async function POST(req: Request) {
     }
 
     const getProviderAndKey = (modelName: string) => {
-        if (modelName.startsWith('gpt-') || modelName.startsWith('o1-') || modelName.startsWith('openai/')) {
+        if (modelName && (modelName.startsWith('gpt-') || modelName.startsWith('o1-') || modelName.startsWith('openai/'))) {
             return { provider: 'openai' as const, key: openaiKey };
         }
         return { provider: 'lightning' as const, key: lightningKey };

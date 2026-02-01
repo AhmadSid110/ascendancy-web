@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { Client, Account, ID } from 'node-appwrite';
+import { createClient } from '@/lib/appwrite-server';
+import { Account, ID } from 'node-appwrite';
 
 export async function POST(req: Request) {
   try {
@@ -10,10 +11,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
 
-    const client = new Client()
-        .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
-        .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!);
-    
+    const client = await createClient();
     const account = new Account(client);
     
     // 1. Create User
@@ -22,7 +20,7 @@ export async function POST(req: Request) {
     // 2. Create Session
     const session = await account.createEmailPasswordSession(email, password);
 
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
     const cookieName = `a_session_${projectId}`;
 
     (await cookies()).set(cookieName, session.secret, {
