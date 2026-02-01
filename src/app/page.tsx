@@ -101,6 +101,18 @@ export default function Home() {
 
     const checkSession = async () => {
       try {
+        // Try server-side session check first (more reliable in Next.js)
+        const res = await fetch('/api/auth/session');
+        if (res.ok) {
+          const session = await res.json();
+          setUser(session);
+          setIsAuthenticated(true);
+          loadChatHistory(session.$id);
+          checkConfig(session.$id);
+          return;
+        }
+        
+        // Fallback to client SDK if server check fails
         const session = await account.get();
         setUser(session);
         setIsAuthenticated(true);
@@ -162,7 +174,7 @@ export default function Home() {
     setIsProcessing(true);
     try {
       if (email && password) {
-        // Use server-side login to set session cookie
+        // 1. Server-side login to set session cookie for API routes
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -171,18 +183,24 @@ export default function Home() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Login failed');
         
-        // Sync client-side SDK (optional, but good for local state)
-        await account.createEmailPasswordSession(email, password);
+        // 2. Client-side SDK login (optional sync, helps with local state)
+        // We do this AFTER the server login so that even if this fails (CORS), 
+        // the server-side session is already established.
+        try {
+          await account.createEmailPasswordSession(email, password);
+        } catch (syncErr) {
+          console.warn("Client-side session sync failed, but server session is set.", syncErr);
+        }
       } else {
         await account.createAnonymousSession();
       }
       
-      const session = await account.get();
-      setUser(session);
-      setIsAuthenticated(true);
-      loadChatHistory(session.$id);
-      checkConfig(session.$id);
-    } catch (err: any) { setError(err.message); } 
+      // 3. Verify session
+      await checkSession();
+      
+    } catch (err: any) { 
+      setError(err.message); 
+    } 
     finally { setIsProcessing(false); }
   };
 
