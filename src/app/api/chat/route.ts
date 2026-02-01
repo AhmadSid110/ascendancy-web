@@ -84,26 +84,54 @@ export async function POST(req: Request) {
 
     if (user.$id !== 'guest') {
         try {
-            const secrets = await databases.listDocuments(
-            dbId,
-            secretsColl,
-            [
-                Query.equal('userId', user.$id),
-                Query.limit(20)
-            ]
+            // Try fetching with session client first (as the user)
+            // This is more secure and respects Appwrite permissions
+            const { databases: userDatabases } = await createSessionClient();
+            const secrets = await userDatabases.listDocuments(
+                dbId,
+                secretsColl,
+                [
+                    Query.equal('userId', user.$id),
+                    Query.limit(20)
+                ]
             );
 
-            const lightningKeyDoc = secrets.documents.find(d => d.keyName === 'lightning_api_key');
-            const openaiKeyDoc = secrets.documents.find(d => d.keyName === 'openai_api_key');
-            const lightningUserDoc = secrets.documents.find(d => d.keyName === 'lightning_username');
-            const lightningTeamDoc = secrets.documents.find(d => d.keyName === 'lightning_teamspace');
+            const findSecret = (name: string) => secrets.documents.find(d => d.keyName === name)?.keyValue;
 
-            if (lightningKeyDoc?.keyValue) lightningKey = lightningKeyDoc.keyValue;
-            if (openaiKeyDoc?.keyValue) openaiKey = openaiKeyDoc.keyValue;
-            if (lightningUserDoc?.keyValue) lightningUsername = lightningUserDoc.keyValue;
-            if (lightningTeamDoc?.keyValue) lightningTeamspace = lightningTeamDoc.keyValue;
-        } catch (e) {
-            console.warn("Failed to fetch user secrets, falling back to system keys", e);
+            if (findSecret('lightning_api_key')) lightningKey = findSecret('lightning_api_key');
+            if (findSecret('openai_api_key')) openaiKey = findSecret('openai_api_key');
+            if (findSecret('lightning_username')) lightningUsername = findSecret('lightning_username');
+            if (findSecret('lightning_teamspace')) lightningTeamspace = findSecret('lightning_teamspace');
+            
+            console.log(`Fetched secrets for user ${user.$id} using session client. Keys found:`, {
+                lightning: !!lightningKey,
+                openai: !!openaiKey
+            });
+
+        } catch (e: any) {
+            console.warn("Session client secrets fetch failed, trying admin client...", e.message);
+            try {
+                const { databases: adminDatabases } = await createAdminClient();
+                const secrets = await adminDatabases.listDocuments(
+                    dbId,
+                    secretsColl,
+                    [
+                        Query.equal('userId', user.$id),
+                        Query.limit(20)
+                    ]
+                );
+
+                const findSecret = (name: string) => secrets.documents.find(d => d.keyName === name)?.keyValue;
+
+                if (findSecret('lightning_api_key')) lightningKey = findSecret('lightning_api_key');
+                if (findSecret('openai_api_key')) openaiKey = findSecret('openai_api_key');
+                if (findSecret('lightning_username')) lightningUsername = findSecret('lightning_username');
+                if (findSecret('lightning_teamspace')) lightningTeamspace = findSecret('lightning_teamspace');
+                
+                console.log(`Fetched secrets for user ${user.$id} using admin client.`);
+            } catch (adminErr: any) {
+                console.error("Admin client secrets fetch also failed:", adminErr.message);
+            }
         }
     }
 

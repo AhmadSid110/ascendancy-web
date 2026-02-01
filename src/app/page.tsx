@@ -139,24 +139,32 @@ export default function Home() {
       const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
       const collId = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
       try {
-        const secrets = await databases.listDocuments(dbId, collId, [Query.equal('userId', userId), Query.limit(20)]);
+        // Try with query first (efficient)
+        let secrets;
+        try {
+            secrets = await databases.listDocuments(dbId, collId, [Query.equal('userId', userId), Query.limit(100)]);
+        } catch (e) {
+            console.warn("Query failed (missing index?), falling back to full list search", e);
+            // Fallback: list all and filter (for cases where indexes aren't set up yet)
+            const allSecrets = await databases.listDocuments(dbId, collId, [Query.limit(100)]);
+            secrets = {
+                ...allSecrets,
+                documents: allSecrets.documents.filter(d => d.userId === userId)
+            };
+        }
+
         const hasLightning = secrets.documents.some(d => d.keyName === 'lightning_api_key');
         const hasOpenAI = secrets.documents.some(d => d.keyName === 'openai_api_key');
         
         if (hasLightning || hasOpenAI) setIsConfigured(true);
         
         // Pre-fill keys if found
-        const lKey = secrets.documents.find(d => d.keyName === 'lightning_api_key');
-        if (lKey) setLightningKey(lKey.keyValue);
+        const findVal = (name: string) => secrets.documents.find(d => d.keyName === name)?.keyValue;
         
-        const lUser = secrets.documents.find(d => d.keyName === 'lightning_username');
-        if (lUser) setLightningUsername(lUser.keyValue);
-        
-        const lTeam = secrets.documents.find(d => d.keyName === 'lightning_teamspace');
-        if (lTeam) setLightningTeamspace(lTeam.keyValue);
-
-        const oKey = secrets.documents.find(d => d.keyName === 'openai_api_key');
-        if (oKey) setOpenaiKey(oKey.keyValue);
+        if (findVal('lightning_api_key')) setLightningKey(findVal('lightning_api_key'));
+        if (findVal('lightning_username')) setLightningUsername(findVal('lightning_username'));
+        if (findVal('lightning_teamspace')) setLightningTeamspace(findVal('lightning_teamspace'));
+        if (findVal('openai_api_key')) setOpenaiKey(findVal('openai_api_key'));
 
       } catch (e) {
         console.error("Config check failed", e);
@@ -166,10 +174,22 @@ export default function Home() {
   const loadChatHistory = async (userId: string) => {
     if (!DB_ID || !CHAT_COLLECTION_ID) return;
     try {
-      const response = await databases.listDocuments(
-        DB_ID, CHAT_COLLECTION_ID,
-        [Query.equal('userId', userId), Query.orderAsc('$createdAt'), Query.limit(100)]
-      );
+      let response;
+      try {
+        response = await databases.listDocuments(
+            DB_ID, CHAT_COLLECTION_ID,
+            [Query.equal('userId', userId), Query.orderAsc('$createdAt'), Query.limit(100)]
+        );
+      } catch (e) {
+          console.warn("Chat history query failed, falling back", e);
+          const allDocs = await databases.listDocuments(DB_ID, CHAT_COLLECTION_ID, [Query.limit(100)]);
+          response = {
+              ...allDocs,
+              documents: allDocs.documents
+                .filter(d => d.userId === userId)
+                .sort((a, b) => new Date(a.$createdAt).getTime() - new Date(b.$createdAt).getTime())
+          };
+      }
       setMessages(response.documents.map(doc => ({
         role: doc.role,
         content: doc.content,
@@ -245,16 +265,28 @@ export default function Home() {
       const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
       const collId = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
       
-      // Check if exists
-      const existing = await databases.listDocuments(dbId, collId, [Query.equal('userId', user.$id), Query.equal('keyName', keyName)]);
-      if (existing.total > 0) {
-          if (keyValue) {
-             await databases.updateDocument(dbId, collId, existing.documents[0].$id, { keyValue });
-          } else {
-             // Optional: delete if empty? No, keep it simple.
-          }
-      } else if (keyValue) {
-          await databases.createDocument(dbId, collId, ID.unique(), { userId: user.$id, keyName, keyValue });
+      try {
+        // Try listing with queries (requires indexes)
+        let existing;
+        try {
+            existing = await databases.listDocuments(dbId, collId, [Query.equal('userId', user.$id), Query.equal('keyName', keyName)]);
+        } catch (e) {
+            console.warn(`Query for ${keyName} failed, falling back to full list check`);
+            const all = await databases.listDocuments(dbId, collId, [Query.limit(100)]);
+            const filtered = all.documents.filter(d => d.userId === user.$id && d.keyName === keyName);
+            existing = { ...all, documents: filtered, total: filtered.length };
+        }
+
+        if (existing.total > 0) {
+            if (keyValue) {
+                await databases.updateDocument(dbId, collId, existing.documents[0].$id, { keyValue });
+            }
+        } else if (keyValue) {
+            await databases.createDocument(dbId, collId, ID.unique(), { userId: user.$id, keyName, keyValue });
+        }
+      } catch (err) {
+          console.error(`Failed to save key ${keyName}:`, err);
+          throw err;
       }
   };
 

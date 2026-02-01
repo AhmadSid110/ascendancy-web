@@ -9,64 +9,58 @@ const client = new Client()
 const databases = new Databases(client);
 
 const DB_ID = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
-const SECRETS_COLL = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
-const CHAT_COLL = process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history';
+const SECRETS_COLL_ID = process.env.NEXT_PUBLIC_APPWRITE_SECRETS_COLLECTION_ID || 'user_secrets';
 
 async function addIndexes() {
-    if (!process.env.APPWRITE_API_KEY) {
-        console.error("Error: APPWRITE_API_KEY is missing in .env.local");
-        return;
-    }
-
-    console.log(`Adding indexes to database: ${DB_ID}...`);
-
-    // Index for user_secrets
     try {
-        console.log(`Adding index to ${SECRETS_COLL}...`);
-        await databases.createIndex(
-            DB_ID, 
-            SECRETS_COLL, 
-            'userId_index', 
-            'key', 
-            ['userId'], 
-            ['asc']
-        );
-        console.log(" - Added userId index to user_secrets");
-    } catch (e) {
-        console.log(` - ${e.message}`);
-    }
+        console.log('Adding index on userId for user_secrets...');
+        try {
+            await databases.createIndex(
+                DB_ID,
+                SECRETS_COLL_ID,
+                'userId_index',
+                'key',
+                ['userId'],
+                ['asc']
+            );
+            console.log('Index on userId created.');
+        } catch (e) {
+            console.log('Index on userId might already exist or error:', e.message);
+        }
 
-    try {
-        await databases.createIndex(
-            DB_ID, 
-            SECRETS_COLL, 
-            'keyName_index', 
-            'key', 
-            ['keyName'], 
-            ['asc']
-        );
-        console.log(" - Added keyName index to user_secrets");
-    } catch (e) {
-        console.log(` - ${e.message}`);
-    }
+        console.log('Adding index on keyName for user_secrets...');
+        try {
+            await databases.createIndex(
+                DB_ID,
+                SECRETS_COLL_ID,
+                'keyName_index',
+                'key',
+                ['keyName'],
+                ['asc']
+            );
+            console.log('Index on keyName created.');
+        } catch (e) {
+            console.log('Index on keyName might already exist or error:', e.message);
+        }
 
-    // Index for chat_history
-    try {
-        console.log(`Adding index to ${CHAT_COLL}...`);
-        await databases.createIndex(
-            DB_ID, 
-            CHAT_COLL, 
-            'userId_index', 
-            'key', 
-            ['userId'], 
-            ['asc']
-        );
-        console.log(" - Added userId index to chat_history");
-    } catch (e) {
-        console.log(` - ${e.message}`);
-    }
+        console.log('Adding index on userId for chat_history...');
+        try {
+            await databases.createIndex(
+                DB_ID,
+                'chat_history',
+                'userId_index',
+                'key',
+                ['userId'],
+                ['asc']
+            );
+            console.log('Index on userId for chat_history created.');
+        } catch (e) {
+            console.log('Index on userId for chat_history might already exist or error:', e.message);
+        }
 
-    console.log("Index creation complete.");
+    } catch (e) {
+        console.error('Fatal Error:', e.message);
+    }
 }
 
-addIndexes().catch(console.error);
+addIndexes();
