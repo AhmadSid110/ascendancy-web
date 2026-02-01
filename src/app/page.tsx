@@ -22,7 +22,7 @@ export default function Home() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Header */}
-      <motion.div 
+      <motion.header 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="absolute top-8 left-8 right-8 flex justify-between items-center z-10"
@@ -43,7 +43,7 @@ export default function Home() {
             SYSTEM ONLINE
           </div>
         </div>
-      </motion.div>
+      </motion.header>
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full max-w-7xl z-10">
@@ -126,7 +126,7 @@ export default function Home() {
       </div>
 
       {/* Bottom Nav */}
-      <motion.div 
+      <motion.nav 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="absolute bottom-8 flex gap-4"
@@ -134,7 +134,7 @@ export default function Home() {
         <NavButton icon={<Cpu className="w-4 h-4" />} active />
         <NavButton icon={<MessageSquare className="w-4 h-4" />} />
         <NavButton icon={<Layers className="w-4 h-4" />} />
-      </motion.div>
+      </motion.nav>
     </main>
   );
 }
