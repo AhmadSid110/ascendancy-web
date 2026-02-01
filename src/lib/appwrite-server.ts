@@ -1,8 +1,8 @@
 import { Client, Databases, Account } from 'node-appwrite';
 import { cookies } from 'next/headers';
 
-const ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
-const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697f306f00366329b3ef';
+const ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || 'https://sgp.cloud.appwrite.io/v1';
+const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || '697e89ff001ad611e97a';
 const API_KEY = process.env.APPWRITE_API_KEY;
 
 export async function createSessionClient() {
