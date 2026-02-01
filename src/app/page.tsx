@@ -22,12 +22,13 @@ import {
 
 // Default configuration
 const DEFAULT_COUNCIL = [
-  { id: '1', name: 'Claude 3.5 Sonnet', model: 'anthropic/claude-3-5-sonnet-20241022', role: 'The Skeptic', color: 'text-red-400' },
-  { id: '2', name: 'Claude 3.5 Sonnet (Thinking)', model: 'anthropic/claude-3-5-sonnet-20241022', role: 'The Moderator', color: 'text-blue-400', thinking: true },
-  { id: '3', name: 'Llama-3.3', model: 'lightning-ai/llama-3.3-70b', role: 'The Visionary', color: 'text-emerald-400' }
+  { id: '1', name: 'DeepSeek V3.1', model: 'lightning-ai/DeepSeek-V3.1', role: 'The Skeptic', color: 'text-red-400' },
+  { id: '2', name: 'GPT-OSS 120B', model: 'lightning-ai/gpt-oss-120b', role: 'The Moderator', color: 'text-blue-400', thinking: true },
+  { id: '3', name: 'Llama 3.3', model: 'lightning-ai/llama-3.3-70b', role: 'The Visionary', color: 'text-emerald-400' }
 ];
 
 export default function Home() {
+  const [council, setCouncil] = useState<any[]>(DEFAULT_COUNCIL);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [password, setPassword] = useState('');
@@ -39,6 +40,44 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeThinker, setActiveThinker] = useState<string | null>(null);
   const [error, setError] = useState('');
+  
+  // New Model Form State
+  const [newModelName, setNewModelName] = useState('');
+  const [newModelPath, setNewModelPath] = useState('');
+  const [newModelRole, setNewModelRole] = useState('Advisor');
+
+  useEffect(() => {
+    const savedCouncil = localStorage.getItem('zenith_council');
+    if (savedCouncil) {
+      try {
+        setCouncil(JSON.parse(savedCouncil));
+      } catch (e) {
+        setCouncil(DEFAULT_COUNCIL);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('zenith_council', JSON.stringify(council));
+  }, [council]);
+
+  const addModel = () => {
+    if (!newModelName || !newModelPath) return;
+    const newModel = {
+      id: ID.unique(),
+      name: newModelName,
+      model: newModelPath,
+      role: newModelRole,
+      color: 'text-purple-400'
+    };
+    setCouncil([...council, newModel]);
+    setNewModelName('');
+    setNewModelPath('');
+  };
+
+  const deleteModel = (id: string) => {
+    setCouncil(council.filter(m => m.id !== id));
+  };
   const chatEndRef = typeof window !== 'undefined' ? null : null; // Use a ref if needed, but I'll use scrollIntoView
 
   useEffect(() => {
@@ -123,10 +162,10 @@ export default function Home() {
 
   const performHealthCheck = async () => {
     const results: Record<string, 'online' | 'offline' | 'checking'> = {};
-    DEFAULT_COUNCIL.forEach(m => results[m.id] = 'checking');
+    council.forEach(m => results[m.id] = 'checking');
     setModelHealth({...results});
 
-    for (const member of DEFAULT_COUNCIL) {
+    for (const member of council) {
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -196,7 +235,7 @@ export default function Home() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isProcessing) return;
+    if (!input.trim() || isProcessing || council.length === 0) return;
 
     const userMessage = input.trim();
     setInput('');
@@ -208,59 +247,63 @@ export default function Home() {
 
     try {
       let context = `User: ${userMessage}`;
+      
+      const moderator = council.find(m => m.role.toLowerCase().includes('moderator')) || council[1] || council[0];
+      const skeptic = council.find(m => m.role.toLowerCase().includes('skeptic')) || council[0];
+      const visionary = council.find(m => m.role.toLowerCase().includes('visionary')) || council[2] || council[0];
 
       if (councilMode === 'solo') {
-        setActiveThinker(DEFAULT_COUNCIL[1].name);
-        const { content, reasoning } = await callLightningAI(userMessage, DEFAULT_COUNCIL[1].model, true);
-        setMessages(prev => [...prev, { role: 'assistant', sender: DEFAULT_COUNCIL[1].name, content, reasoning }]);
-        await saveMessage('assistant', content, DEFAULT_COUNCIL[1].name);
+        setActiveThinker(moderator.name);
+        const { content, reasoning } = await callLightningAI(userMessage, moderator.model, true);
+        setMessages(prev => [...prev, { role: 'assistant', sender: moderator.name, content, reasoning }]);
+        await saveMessage('assistant', content, moderator.name);
         setActiveThinker(null);
       } else {
         // Step 1: Moderator
-        setActiveThinker(DEFAULT_COUNCIL[1].name);
+        setActiveThinker(moderator.name);
         const modResult = await callLightningAI(
           `Respond to this query as a Moderator of the Zenith Council. Be precise and thorough. Query: "${userMessage}"`, 
-          DEFAULT_COUNCIL[1].model,
+          moderator.model,
           true
         );
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          sender: DEFAULT_COUNCIL[1].name, 
+          sender: moderator.name, 
           content: modResult.content, 
           reasoning: modResult.reasoning 
         }]);
-        await saveMessage('assistant', modResult.content, DEFAULT_COUNCIL[1].name);
+        await saveMessage('assistant', modResult.content, moderator.name);
         context += `\nModerator: ${modResult.content}`;
 
         // Step 2: Skeptic
-        setActiveThinker(DEFAULT_COUNCIL[0].name);
+        setActiveThinker(skeptic.name);
         const skepticPrompt = antiHallucination 
           ? `As the Skeptic, your job is to prevent hallucination. Fact-check the Moderator's response to "${userMessage}": "${modResult.content}". Point out any potential inaccuracies or unverified claims. If everything looks good, challenge the logic instead.`
           : `As the Skeptic, challenge the Moderator's stance on "${userMessage}": "${modResult.content}"`;
         
-        const skepticResult = await callLightningAI(skepticPrompt, DEFAULT_COUNCIL[0].model, false);
+        const skepticResult = await callLightningAI(skepticPrompt, skeptic.model, false);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          sender: DEFAULT_COUNCIL[0].name, 
+          sender: skeptic.name, 
           content: skepticResult.content 
         }]);
-        await saveMessage('assistant', skepticResult.content, DEFAULT_COUNCIL[0].name);
+        await saveMessage('assistant', skepticResult.content, skeptic.name);
         context += `\nSkeptic: ${skepticResult.content}`;
 
         // Step 3: Visionary
-        setActiveThinker(DEFAULT_COUNCIL[2].name);
+        setActiveThinker(visionary.name);
         const visionaryResult = await callLightningAI(
           `As the Visionary, synthesize the final definitive answer considering the debate. User: "${userMessage}". Moderator: "${modResult.content}". Skeptic: "${skepticResult.content}". Resolve any conflicts and provide a futuristic, grounded solution.`, 
-          DEFAULT_COUNCIL[2].model,
+          visionary.model,
           true
         );
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          sender: DEFAULT_COUNCIL[2].name, 
+          sender: visionary.name, 
           content: visionaryResult.content,
           reasoning: visionaryResult.reasoning
         }]);
-        await saveMessage('assistant', visionaryResult.content, DEFAULT_COUNCIL[2].name);
+        await saveMessage('assistant', visionaryResult.content, visionary.name);
         setActiveThinker(null);
       }
       
@@ -486,8 +529,15 @@ export default function Home() {
             </div>
             
             <div className="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
-              {DEFAULT_COUNCIL.map((member) => (
-                <div key={member.id} className={`p-3 bg-white/5 rounded-xl border transition-all ${activeThinker === member.name ? 'border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)] bg-blue-500/5' : 'border-white/5'}`}>
+              {council.map((member) => (
+                <div key={member.id} className={`p-3 bg-white/5 rounded-xl border transition-all group relative ${activeThinker === member.name ? 'border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)] bg-blue-500/5' : 'border-white/5'}`}>
+                  <button 
+                    onClick={() => deleteModel(member.id)}
+                    className="absolute -top-2 -right-2 p-1 bg-red-500/20 border border-red-500/30 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 text-white"
+                    title="Delete Member"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                   <div className="flex justify-between items-start mb-1">
                     <span className={`text-[10px] font-bold ${member.color} tracking-tighter uppercase`}>{member.name}</span>
                     <div className="flex items-center gap-1.5">
@@ -518,6 +568,44 @@ export default function Home() {
                   <div className="text-[8px] text-white/20 truncate font-mono">{member.model}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Add Model Form */}
+            <div className="mt-4 pt-4 border-t border-white/5 space-y-3">
+              <div className="space-y-2">
+                <input 
+                  type="text" 
+                  placeholder="Name (e.g. GPT-4)"
+                  value={newModelName}
+                  onChange={(e) => setNewModelName(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:border-blue-500/50"
+                />
+                <input 
+                  type="text" 
+                  placeholder="Model Path (e.g. lightning-ai/...)"
+                  value={newModelPath}
+                  onChange={(e) => setNewModelPath(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:border-blue-500/50"
+                />
+                <select 
+                  value={newModelRole}
+                  onChange={(e) => setNewModelRole(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:border-blue-500/50 text-white/60"
+                >
+                  <option value="Moderator">Moderator</option>
+                  <option value="Skeptic">Skeptic</option>
+                  <option value="Visionary">Visionary</option>
+                  <option value="Advisor">Advisor</option>
+                </select>
+              </div>
+              <button 
+                onClick={addModel}
+                disabled={!newModelName || !newModelPath}
+                className="w-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+              >
+                <Plus className="w-3 h-3" />
+                Enroll Member
+              </button>
             </div>
           </GlassCard>
         </div>
@@ -588,9 +676,7 @@ export default function Home() {
                     <div className="flex items-center gap-2">
                       <span className={`text-[9px] font-bold uppercase tracking-widest ${
                         msg.role === 'user' ? 'text-white/40' : 
-                        msg.sender === DEFAULT_COUNCIL[0].name ? 'text-red-400' :
-                        msg.sender === DEFAULT_COUNCIL[1].name ? 'text-blue-400' :
-                        'text-emerald-400'
+                        council.find(m => m.name === msg.sender)?.color || 'text-emerald-400'
                       }`}>
                         {msg.sender || 'Ahmad'}
                       </span>
