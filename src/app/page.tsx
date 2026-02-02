@@ -1044,6 +1044,11 @@ export default function Home() {
         </div>
 
       </main>
+      <AnimatePresence>
+        {showLibrary && (
+          <LibraryTab user={user} onClose={() => setShowLibrary(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

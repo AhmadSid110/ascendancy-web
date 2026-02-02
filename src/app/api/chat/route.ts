@@ -2,6 +2,81 @@ import { NextResponse } from 'next/server';
 import { createSessionClient, createAdminClient } from '@/lib/appwrite-server';
 import { Query, ID } from 'node-appwrite';
 
+// --- SHARED TOOLS (Moved inline for reliability in Cloud environments) ---
+
+async function searchWeb(query: string, provider: string = 'serper') {
+  try {
+    if (provider === 'tavily') {
+      const apiKey = process.env.TAVILY_API_KEY;
+      if (!apiKey) return 'Error: TAVILY_API_KEY not set on server.';
+      
+      const response = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: apiKey,
+          query: query,
+          search_depth: "smart",
+          include_answer: true,
+          max_results: 5
+        }),
+      });
+
+      if (!response.ok) return `Tavily Error: ${response.status}`;
+      const data = await response.json();
+      return data.results?.map((item: any, i: number) => (
+        `[${i + 1}] ${item.title}\nLink: ${item.url}\nSnippet: ${item.content}`
+      )).join('\n\n') || 'No results found.';
+    } else {
+      const apiKey = process.env.SERPER_API_KEY;
+      if (!apiKey) return 'Error: SERPER_API_KEY not set on server.';
+
+      const response = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ q: query, num: 5 }),
+      });
+
+      if (!response.ok) return `Serper Error: ${response.status}`;
+      const data = await response.json();
+      return data.organic?.map((item: any, i: number) => (
+        `[${i + 1}] ${item.title}\nLink: ${item.link}\nSnippet: ${item.snippet}`
+      )).join('\n\n') || 'No results found.';
+    }
+  } catch (e: any) {
+    return `Search Tool Error: ${e.message}`;
+  }
+}
+
+async function searchLibrary(query: string, userId: string) {
+  try {
+    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
+    const collId = 'library_chunks';
+    const { databases } = await createAdminClient();
+
+    const results = await databases.listDocuments(
+      dbId,
+      collId,
+      [
+        Query.search('content', query),
+        ...(userId && userId !== 'guest' ? [Query.equal('userId', userId)] : []),
+        Query.limit(5)
+      ]
+    );
+
+    if (results.total === 0) return 'No matching information found in your library.';
+
+    return results.documents.map((doc: any) => (
+      `Source: ${doc.fileName}\nContent: ${doc.content}`
+    )).join('\n\n---\n\n');
+  } catch (e: any) {
+    return `Library Tool Error: ${e.message}`;
+  }
+}
+
 // Updated to use Lightning AI specific model names from verified list
 const DEFAULT_COUNCIL = {
   moderator: 'lightning-ai/gpt-oss-120b', 
@@ -43,38 +118,6 @@ async function callAI(apiKey: string, model: string, messages: any[], provider: 
   return data.choices[0].message.content;
 }
 
-async function callSearch(query: string, provider: string = 'serper') {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  try {
-    const res = await fetch(`${baseUrl}/api/tools/search`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, provider }),
-    });
-    if (!res.ok) return `Error performing search: ${res.status}`;
-    const data = await res.json();
-    return data.results;
-  } catch (e: any) {
-    return `Search failed: ${e.message}`;
-  }
-}
-
-async function callLibrary(query: string, userId: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  try {
-    const res = await fetch(`${baseUrl}/api/tools/library`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, userId }),
-    });
-    if (!res.ok) return `Error searching library: ${res.status}`;
-    const data = await res.json();
-    return data.results;
-  } catch (e: any) {
-    return `Library search failed: ${e.message}`;
-  }
-}
-
 export async function POST(req: Request) {
   try {
     const { prompt, model, messages: historyMessages, mode, debug, role, searchProvider = 'serper' } = await req.json();
@@ -90,7 +133,6 @@ export async function POST(req: Request) {
       user = await account.get();
     } catch (e: any) {
       console.warn("Session check failed:", e.message);
-      // Check if we can allow guest access via server-side keys
       if (process.env.LIGHTNING_API_KEY || process.env.OPENAI_API_KEY) {
           user = { $id: 'guest', name: 'Guest User' };
       } else {
@@ -116,8 +158,6 @@ export async function POST(req: Request) {
 
     if (user.$id !== 'guest') {
         try {
-            // Try fetching with session client first (as the user)
-            // This is more secure and respects Appwrite permissions
             const { databases: userDatabases } = await createSessionClient();
             const secrets = await userDatabases.listDocuments(
                 dbId,
@@ -134,17 +174,11 @@ export async function POST(req: Request) {
             if (findSecret('openai_api_key')) openaiKey = findSecret('openai_api_key');
             if (findSecret('lightning_username')) lightningUsername = findSecret('lightning_username');
             if (findSecret('lightning_teamspace')) lightningTeamspace = findSecret('lightning_teamspace');
-            
-            console.log(`Fetched secrets for user ${user.$id} using session client. Keys found:`, {
-                lightning: !!lightningKey,
-                openai: !!openaiKey
-            });
 
         } catch (e: any) {
             console.warn("Session client secrets fetch failed, trying admin client...", e.message);
             try {
-                const { databases: adminDatabases } = await createAdminClient();
-                const secrets = await adminDatabases.listDocuments(
+                const secrets = await databases.listDocuments(
                     dbId,
                     secretsColl,
                     [
@@ -152,22 +186,15 @@ export async function POST(req: Request) {
                         Query.limit(20)
                     ]
                 );
-
                 const findSecret = (name: string) => secrets.documents.find(d => d.keyName === name)?.keyValue;
-
                 if (findSecret('lightning_api_key')) lightningKey = findSecret('lightning_api_key');
                 if (findSecret('openai_api_key')) openaiKey = findSecret('openai_api_key');
                 if (findSecret('lightning_username')) lightningUsername = findSecret('lightning_username');
                 if (findSecret('lightning_teamspace')) lightningTeamspace = findSecret('lightning_teamspace');
-                
-                console.log(`Fetched secrets for user ${user.$id} using admin client.`);
-            } catch (adminErr: any) {
-                console.error("Admin client secrets fetch also failed:", adminErr.message);
-            }
+            } catch (adminErr: any) {}
         }
     }
 
-    // Combine Lightning Key if username/teamspace are present
     if (lightningKey && lightningUsername && lightningTeamspace) {
         lightningKey = `${lightningKey}/${lightningUsername}/${lightningTeamspace}`;
     }
@@ -179,21 +206,14 @@ export async function POST(req: Request) {
         return { provider: 'lightning' as const, key: lightningKey };
     };
 
-    // Helper wrapper to handle key missing errors
     const safeCallAI = async (m: string, msgs: any[]) => {
         const { provider, key } = getProviderAndKey(m);
-        if (!key) {
-            const reason = user.$id === 'guest' 
-                ? 'Guest access requires server-side API keys. Please log in or set LIGHTNING_API_KEY.' 
-                : `User '${user.name}' (${user.$id}) has no ${provider}_api_key saved in Appwrite.`;
-            throw new Error(`Missing API Key for provider: ${provider}. ${reason}`);
-        }
+        if (!key) throw new Error(`Missing API Key for provider: ${provider}.`);
         return await callAI(key, m, msgs, provider);
     };
 
-    // Helper for history persistence
     const saveHistory = async (collectionId: string, data: any) => {
-        if (user.$id === 'guest') return; // Skip saving history for guests
+        if (user.$id === 'guest') return;
         try {
             await databases.createDocument(dbId, collectionId, ID.unique(), data);
         } catch (e) {
@@ -204,13 +224,12 @@ export async function POST(req: Request) {
     // DIRECT / SOLO MODE
     if (model && mode !== 'debate') {
         let messages = historyMessages || [{ role: 'user', content: prompt }];
-        // Ensure system message if needed
         if (!messages.find((m: any) => m.role === 'system')) {
             const systemContent = role ? `You are ${role}.` : 'You are a helpful AI assistant.';
             messages.unshift({ role: 'system', content: systemContent });
         }
 
-        // TOOL USE: Detect if search is needed (Simple heuristic for now)
+        // --- TOOL USE DETECTION ---
         const needsSearchPrompt = `You are a query analyzer. Given the user prompt, decide if we need to search the WEB or the USER'S LIBRARY.
         Reply only with:
         - "WEB" if it's about current events, news, or public data.
@@ -223,28 +242,23 @@ export async function POST(req: Request) {
         
         let toolResults = "";
         if (decision.includes('WEB')) {
-            console.log(`[Chat] Tool Use triggered: Search (${searchProvider})`);
-            // Generate a clean search query
-            const searchQuery = await safeCallAI(model, [{ role: 'user', content: `Generate a short, effective Google search query for: "${prompt}". Reply with only the query string.` }]);
-            const results = await callSearch(searchQuery, searchProvider);
-            toolResults = `\n\nWEB SEARCH RESULTS (${searchProvider.toUpperCase()}):\n${results}\n\nUse the above information to answer the user accurately.`;
-            
-            // Append search results to the last message for context
+            console.log(`[Chat] Tool Use: Search (${searchProvider})`);
+            const qPrompt = `Generate a short Google search query for: "${prompt}". Reply with only the query.`;
+            const searchQuery = await safeCallAI(model, [{ role: 'user', content: qPrompt }]);
+            const results = await searchWeb(searchQuery, searchProvider);
+            toolResults = `\n\nWEB SEARCH RESULTS (${searchProvider.toUpperCase()}):\n${results}\n\nUse this to answer.`;
             messages[messages.length - 1].content += toolResults;
         } else if (decision.includes('LIBRARY')) {
-            console.log(`[Chat] Tool Use triggered: Library`);
-            // Generate a clean search query
-            const searchQuery = await safeCallAI(model, [{ role: 'user', content: `Generate a short keyword search query for a personal document library based on: "${prompt}". Reply with only the query string.` }]);
-            const results = await callLibrary(searchQuery, user.$id);
-            toolResults = `\n\nLIBRARY KNOWLEDGE:\n${results}\n\nUse this personal context to answer the user accurately.`;
-            
-            // Append search results to the last message for context
+            console.log(`[Chat] Tool Use: Library`);
+            const qPrompt = `Generate a keyword search query for a personal library for: "${prompt}". Reply with only the query.`;
+            const searchQuery = await safeCallAI(model, [{ role: 'user', content: qPrompt }]);
+            const results = await searchLibrary(searchQuery, user.$id);
+            toolResults = `\n\nLIBRARY KNOWLEDGE:\n${results}\n\nUse this personal context to answer.`;
             messages[messages.length - 1].content += toolResults;
         }
 
         const content = await safeCallAI(model, messages);
         
-        // Save to history
         await saveHistory(
             process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
             {
@@ -263,20 +277,10 @@ export async function POST(req: Request) {
         });
     }
 
-    // --- DEBATE PROTOCOL (Default) ---
-    // Use Lightning for debate by default unless moderator is OpenAI
-    // For simplicity, we assume the Council is running on the default config or mostly Lightning
-    // If moderator is GPT-4, we use OpenAI key for that step.
-
-    // 4. Fetch Council Config
+    // --- DEBATE PROTOCOL ---
     let council = { ...DEFAULT_COUNCIL };
     try {
-        const configColl = 'council_config';
-        const configs = await databases.listDocuments(
-            dbId,
-            configColl,
-            [Query.equal('configId', 'default'), Query.limit(1)] 
-        );
+        const configs = await databases.listDocuments(dbId, 'council_config', [Query.equal('configId', 'default'), Query.limit(1)]);
         if (configs.total > 0) {
             const c = configs.documents[0];
             council = {
@@ -285,80 +289,44 @@ export async function POST(req: Request) {
                 visionary: c.visionaryModel || DEFAULT_COUNCIL.visionary,
             };
         }
-    } catch (e) {
-        console.warn("Could not fetch council config, using defaults.");
-    }
+    } catch (e) {}
 
-    // Step 1: The Moderator
-    const modMessages = [
-        { role: 'system', content: 'You are the Moderator of the Ascendancy Council. Provide a balanced, objective, and standard answer to the user query.' },
-        { role: 'user', content: prompt }
-    ];
+    const modMessages = [{ role: 'system', content: 'Moderator: Provide a standard answer.' }, { role: 'user', content: prompt }];
     const modResponse = await safeCallAI(council.moderator, modMessages);
 
-    // Step 2: The Skeptic
-    const skepticMessages = [
-        { role: 'system', content: 'You are the Skeptic of the Ascendancy Council. Your job is to challenge the Moderator\'s answer. Find flaws, logical gaps, potential hallucinations, or missing perspectives. Be critical but constructive.' },
-        { role: 'user', content: `User Query: "${prompt}"\n\nModerator Answer: "${modResponse}"` }
-    ];
+    const skepticMessages = [{ role: 'system', content: 'Skeptic: Critique the answer.' }, { role: 'user', content: `Query: "${prompt}"\n\nMod: "${modResponse}"` }];
     const skepticResponse = await safeCallAI(council.skeptic, skepticMessages);
 
-    // Step 3: The Visionary
-    const visionaryMessages = [
-        { role: 'system', content: 'You are the Visionary of the Ascendancy Council. Synthesize a final, forward-looking, and comprehensive answer based on the debate. Incorporate the valid points from the Skeptic while maintaining the core truth from the Moderator. Your answer is the final output to the user.' },
-        { role: 'user', content: `User Query: "${prompt}"\n\nModerator Answer: "${modResponse}"\n\nSkeptic Critique: "${skepticResponse}"` }
-    ];
+    const visionaryMessages = [{ role: 'system', content: 'Visionary: Synthesize final answer.' }, { role: 'user', content: `Query: "${prompt}"\n\nMod: "${modResponse}"\n\nSkeptic: "${skepticResponse}"` }];
     const visionaryResponse = await safeCallAI(council.visionary, visionaryMessages);
 
-    // 5. Persistence
-    await saveHistory(
-        'debate_history',
-        {
-            debateId: ID.unique(),
-            topic: prompt,
-            result: JSON.stringify({
-                moderator: { model: council.moderator, content: modResponse },
-                skeptic: { model: council.skeptic, content: skepticResponse },
-                visionary: { model: council.visionary, content: visionaryResponse }
-            }),
-            timestamp: new Date().toISOString(),
-            userId: user.$id
-        }
-    );
+    await saveHistory('debate_history', {
+        debateId: ID.unique(),
+        topic: prompt,
+        result: JSON.stringify({
+            moderator: { model: council.moderator, content: modResponse },
+            skeptic: { model: council.skeptic, content: skepticResponse },
+            visionary: { model: council.visionary, content: visionaryResponse }
+        }),
+        timestamp: new Date().toISOString(),
+        userId: user.$id
+    });
 
-    await saveHistory(
-        process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
-        {
-            userId: user.$id,
-            message: visionaryResponse,
-            role: 'assistant',
-            timestamp: new Date().toISOString()
-        }
-    );
-    
-    // Also save user message if needed (usually handled by frontend or before this)
-    await saveHistory(
-        process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history',
-        {
-            userId: user.$id,
-            message: prompt,
-            role: 'user',
-            timestamp: new Date().toISOString()
-        }
-    );
+    await saveHistory(process.env.NEXT_PUBLIC_APPWRITE_CHAT_COLLECTION_ID || 'chat_history', {
+        userId: user.$id,
+        message: visionaryResponse,
+        role: 'assistant',
+        timestamp: new Date().toISOString()
+    });
 
     return NextResponse.json({
         content: visionaryResponse,
-        debate: {
-            moderator: modResponse,
-            skeptic: skepticResponse,
-            visionary: visionaryResponse
-        },
+        debate: { moderator: modResponse, skeptic: skepticResponse, visionary: visionaryResponse },
         models: council
     });
 
   } catch (error: any) {
     console.error('API Error:', error);
-    return NextResponse.json({ error: { message: error.message || 'Internal Server Error', stack: process.env.NODE_ENV === 'development' ? error.stack : undefined } }, { status: 500 });
+    return NextResponse.json({ error: { message: error.message || 'Internal Error' } }, { status: 500 });
   }
 }

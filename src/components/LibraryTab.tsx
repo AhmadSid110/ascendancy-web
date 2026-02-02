@@ -80,16 +80,22 @@ export default function LibraryTab({ user }: { user: any }) {
   const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
-    <div className="flex flex-col h-full bg-[var(--card-bg)] border-l border-[var(--card-border)] w-80 z-20 shadow-xl overflow-hidden">
-      <div className="p-6 border-b border-[var(--card-border)] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-           <Book className="w-5 h-5 text-[var(--accent)]" />
-           <h3 className="font-bold tracking-tight">Library</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="flex flex-col h-[80vh] bg-[var(--card-bg)] border border-[var(--card-border)] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+      >
+        <div className="p-6 border-b border-[var(--card-border)] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+             <Book className="w-5 h-5 text-[var(--accent)]" />
+             <h3 className="font-bold tracking-tight">Library</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-[var(--card-border)] rounded-lg transition-colors">
+            <X className="w-4 h-4 text-[var(--text-muted)]" />
+          </button>
         </div>
-        <button className="p-2 hover:bg-[var(--card-border)] rounded-lg transition-colors">
-          <X className="w-4 h-4 text-[var(--text-muted)]" />
-        </button>
-      </div>
 
       <div className="p-4 space-y-4 flex-1 overflow-y-auto">
         {/* Upload Zone */}
