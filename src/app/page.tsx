@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { account, databases, DB_ID, CHAT_COLLECTION_ID } from '@/lib/appwrite';
 import { ID, Query } from 'appwrite';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MessageSquare, 
   Shield, 
