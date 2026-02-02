@@ -67,6 +67,22 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const stopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsProcessing(false);
+      setMessages(prev => [...prev, { role: 'system', content: 'Transmission terminated by user.', sender: 'System' }]);
+    }
+  };
+
+  const startNewChat = () => {
+    setMessages([]);
+    setError('');
+  };
   
   // Paperclip State
   const [attachedFile, setAttachedFile] = useState<{ name: string, content: string } | null>(null);
@@ -357,8 +373,12 @@ export default function Home() {
         // Fallback for anonymous or failed JWT creation
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const response = await fetch('/api/chat', {
       method: 'POST',
+      signal: controller.signal,
       headers: { 
         'Content-Type': 'application/json',
         ...(jwt ? { 'x-appwrite-jwt': jwt } : {})
@@ -442,6 +462,7 @@ export default function Home() {
       }]);
     } finally {
       setIsProcessing(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -917,6 +938,9 @@ export default function Home() {
             </h2>
           </div>
           <div className="flex items-center gap-2">
+             <button onClick={startNewChat} className="p-2 hover:bg-red-500/10 text-[var(--text-muted)] hover:text-red-500 rounded-lg transition-colors" title="New Chat">
+               <Trash2 className="w-5 h-5" />
+             </button>
              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 hover:bg-[var(--card-border)] rounded-lg transition-colors">
                {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
              </button>
@@ -1027,13 +1051,23 @@ export default function Home() {
                 className="w-full pl-12 pr-14 py-4 rounded-2xl shadow-sm transition-all focus:ring-2 focus:ring-[var(--accent)]/20"
                 disabled={isProcessing}
               />
-              <button 
-                type="submit" 
-                disabled={!input.trim() || isProcessing}
-                className="absolute right-2 top-2 bottom-2 aspect-square bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-xl flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send className="w-5 h-5" />
-              </button>
+              {isProcessing ? (
+                <button 
+                  type="button"
+                  onClick={stopGeneration}
+                  className="absolute right-2 top-2 bottom-2 aspect-square bg-red-500 hover:bg-red-600 text-white rounded-xl flex items-center justify-center transition-all shadow-lg shadow-red-500/20"
+                >
+                  <div className="w-3 h-3 bg-white rounded-sm" />
+                </button>
+              ) : (
+                <button 
+                  type="submit" 
+                  disabled={!input.trim() || isProcessing}
+                  className="absolute right-2 top-2 bottom-2 aspect-square bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-xl flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              )}
             </form>
             <div className="mt-2 text-center flex justify-center items-center gap-2">
               <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest">
