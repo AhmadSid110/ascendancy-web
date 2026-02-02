@@ -43,6 +43,22 @@ async function callAI(apiKey: string, model: string, messages: any[], provider: 
   return data.choices[0].message.content;
 }
 
+async function callSearch(query: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  try {
+    const res = await fetch(`${baseUrl}/api/tools/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return `Error performing search: ${res.status}`;
+    const data = await res.json();
+    return data.results;
+  } catch (e: any) {
+    return `Search failed: ${e.message}`;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt, model, messages: historyMessages, mode, debug, role } = await req.json();
@@ -171,11 +187,27 @@ export async function POST(req: Request) {
 
     // DIRECT / SOLO MODE
     if (model && mode !== 'debate') {
-        const messages = historyMessages || [{ role: 'user', content: prompt }];
+        let messages = historyMessages || [{ role: 'user', content: prompt }];
         // Ensure system message if needed
         if (!messages.find((m: any) => m.role === 'system')) {
             const systemContent = role ? `You are ${role}.` : 'You are a helpful AI assistant.';
             messages.unshift({ role: 'system', content: systemContent });
+        }
+
+        // TOOL USE: Detect if search is needed (Simple heuristic for now)
+        const needsSearchPrompt = `You are a query analyzer. Does the following user prompt require a web search to provide an accurate, up-to-date answer? Reply only with "YES" or "NO".\n\nPrompt: "${prompt}"`;
+        const decision = await safeCallAI(model, [{ role: 'user', content: needsSearchPrompt }]);
+        
+        let toolResults = "";
+        if (decision.includes('YES')) {
+            console.log(`[Chat] Tool Use triggered: Search`);
+            // Generate a clean search query
+            const searchQuery = await safeCallAI(model, [{ role: 'user', content: `Generate a short, effective Google search query for: "${prompt}". Reply with only the query string.` }]);
+            const results = await callSearch(searchQuery);
+            toolResults = `\n\nWEB SEARCH RESULTS:\n${results}\n\nUse the above information to answer the user accurately.`;
+            
+            // Append search results to the last message for context
+            messages[messages.length - 1].content += toolResults;
         }
 
         const content = await safeCallAI(model, messages);
