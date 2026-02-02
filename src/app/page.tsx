@@ -27,8 +27,10 @@ import {
   Check,
   X,
   Search,
-  Globe
+  Globe,
+  BookOpen
 } from 'lucide-react';
+import LibraryTab from '@/components/LibraryTab';
 
 const DEFAULT_COUNCIL = [
   { id: '1', name: 'DeepSeek V3.1', model: 'lightning-ai/DeepSeek-V3.1', role: 'The Skeptic', color: 'text-red-500' },
@@ -72,6 +74,7 @@ export default function Home() {
 
   // Settings UI State
   const [showSettings, setShowSettings] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
 
   // Edit Model State
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
@@ -631,6 +634,18 @@ export default function Home() {
                 {councilMode === 'debate' ? 'DEBATE' : 'SOLO'}
               </button>
             </div>
+            
+            <button 
+              onClick={() => setShowLibrary(!showLibrary)}
+              className={`w-full flex items-center justify-between p-3 mb-4 rounded-xl border transition-all ${showLibrary ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-lg shadow-[var(--accent)]/20' : 'bg-[var(--card-border)]/50 border-[var(--card-border)] hover:bg-[var(--card-border)]'}`}
+            >
+              <div className="flex items-center gap-3">
+                <BookOpen className={`w-4 h-4 ${showLibrary ? 'text-white' : 'text-[var(--accent)]'}`} />
+                <span className="text-sm font-semibold">Knowledge Hub</span>
+              </div>
+              <ChevronLeft className={`w-4 h-4 transition-transform ${showLibrary ? 'rotate-180' : 'rotate-0'}`} />
+            </button>
+
             <div className="space-y-2">
               {council.map(member => (
                 <div 

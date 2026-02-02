@@ -59,6 +59,22 @@ async function callSearch(query: string, provider: string = 'serper') {
   }
 }
 
+async function callLibrary(query: string, userId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  try {
+    const res = await fetch(`${baseUrl}/api/tools/library`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, userId }),
+    });
+    if (!res.ok) return `Error searching library: ${res.status}`;
+    const data = await res.json();
+    return data.results;
+  } catch (e: any) {
+    return `Library search failed: ${e.message}`;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt, model, messages: historyMessages, mode, debug, role, searchProvider = 'serper' } = await req.json();
@@ -195,16 +211,32 @@ export async function POST(req: Request) {
         }
 
         // TOOL USE: Detect if search is needed (Simple heuristic for now)
-        const needsSearchPrompt = `You are a query analyzer. Does the following user prompt require a web search to provide an accurate, up-to-date answer? Reply only with "YES" or "NO".\n\nPrompt: "${prompt}"`;
+        const needsSearchPrompt = `You are a query analyzer. Given the user prompt, decide if we need to search the WEB or the USER'S LIBRARY.
+        Reply only with:
+        - "WEB" if it's about current events, news, or public data.
+        - "LIBRARY" if it sounds like they are asking about their own documents, personal notes, or uploaded files.
+        - "NONE" if no search is needed.
+
+        Prompt: "${prompt}"`;
+        
         const decision = await safeCallAI(model, [{ role: 'user', content: needsSearchPrompt }]);
         
         let toolResults = "";
-        if (decision.includes('YES')) {
+        if (decision.includes('WEB')) {
             console.log(`[Chat] Tool Use triggered: Search (${searchProvider})`);
             // Generate a clean search query
             const searchQuery = await safeCallAI(model, [{ role: 'user', content: `Generate a short, effective Google search query for: "${prompt}". Reply with only the query string.` }]);
             const results = await callSearch(searchQuery, searchProvider);
             toolResults = `\n\nWEB SEARCH RESULTS (${searchProvider.toUpperCase()}):\n${results}\n\nUse the above information to answer the user accurately.`;
+            
+            // Append search results to the last message for context
+            messages[messages.length - 1].content += toolResults;
+        } else if (decision.includes('LIBRARY')) {
+            console.log(`[Chat] Tool Use triggered: Library`);
+            // Generate a clean search query
+            const searchQuery = await safeCallAI(model, [{ role: 'user', content: `Generate a short keyword search query for a personal document library based on: "${prompt}". Reply with only the query string.` }]);
+            const results = await callLibrary(searchQuery, user.$id);
+            toolResults = `\n\nLIBRARY KNOWLEDGE:\n${results}\n\nUse this personal context to answer the user accurately.`;
             
             // Append search results to the last message for context
             messages[messages.length - 1].content += toolResults;
