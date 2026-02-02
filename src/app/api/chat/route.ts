@@ -74,15 +74,21 @@ async function refreshGoogleToken(refreshToken: string, type: 'antigravity' | 'c
     cli: { id: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com", secret: process.env.GOOGLE_CLI_SECRET }
   };
   const client = CLIENTS[type];
+  
+  const params: Record<string, string> = {
+    client_id: client.id,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  };
+
+  if (client.secret) {
+    params.client_secret = client.secret;
+  }
+
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: client.id,
-      client_secret: client.secret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
+    body: new URLSearchParams(params),
   });
   const data = await res.json();
   return data.access_token;

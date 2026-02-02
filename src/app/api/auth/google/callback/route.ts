@@ -18,17 +18,22 @@ export async function POST(req: Request) {
 
     if (!client) return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
 
+    const params: Record<string, string> = {
+      client_id: client.id,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+      code_verifier: verifier,
+    };
+
+    if (client.secret) {
+        params.client_secret = client.secret;
+    }
+
     const response = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: client.id,
-        client_secret: client.secret,
-        code,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri,
-        code_verifier: verifier,
-      }),
+      body: new URLSearchParams(params),
     });
 
     if (!response.ok) {
