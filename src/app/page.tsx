@@ -28,7 +28,9 @@ import {
   X,
   Search,
   Globe,
-  BookOpen
+  BookOpen,
+  Paperclip,
+  FileUp
 } from 'lucide-react';
 import LibraryTab from '@/components/LibraryTab';
 
@@ -65,6 +67,10 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  
+  // Paperclip State
+  const [attachedFile, setAttachedFile] = useState<{ name: string, content: string } | null>(null);
+  const [isReadingFile, setIsReadingFile] = useState(false);
   
   // New Model Form State
   const [newModelName, setNewModelName] = useState('');
@@ -279,6 +285,24 @@ export default function Home() {
     setIsConfigured(false); // Reset config state to force re-check or re-login
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsReadingFile(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const content = event.target?.result as string;
+        setAttachedFile({ name: file.name, content: content.slice(0, 50000) }); // Limit to 50k chars for stability
+        setIsReadingFile(false);
+    };
+    reader.onerror = () => {
+        setError("Failed to read file");
+        setIsReadingFile(false);
+    };
+    reader.readAsText(file);
+  };
+
   const saveKey = async (keyName: string, keyValue: string) => {
       if (!user) return;
       const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
@@ -367,8 +391,15 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim() || isProcessing) return;
 
-    const userMessage = input.trim();
+    let userMessage = input.trim();
+    
+    // If there is an attached file, prepend its content
+    if (attachedFile) {
+        userMessage = `[ATTACHED FILE: ${attachedFile.name}]\n${attachedFile.content}\n\nUSER MESSAGE: ${userMessage}`;
+    }
+
     setInput('');
+    setAttachedFile(null); // Clear after sending
     const newMessages = [...messages, { role: 'user', content: userMessage }];
     setMessages(newMessages);
     setIsProcessing(true);
@@ -957,12 +988,37 @@ export default function Home() {
         {/* Input Area */}
         <div className="p-4 bg-[var(--background)]/80 backdrop-blur-md border-t border-[var(--card-border)]">
           <div className="max-w-4xl mx-auto w-full relative">
+            
+            {/* Attachment Preview */}
+            <AnimatePresence>
+              {attachedFile && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute -top-14 left-0 bg-[var(--accent)]/10 border border-[var(--accent)]/30 p-2 rounded-xl flex items-center gap-2 text-xs backdrop-blur-md shadow-lg"
+                >
+                  <FileUp className="w-3 h-3 text-[var(--accent)]" />
+                  <span className="font-medium truncate max-w-[150px]">{attachedFile.name}</span>
+                  <button onClick={() => setAttachedFile(null)} className="p-1 hover:bg-red-500/10 rounded-lg text-red-500">
+                    <X className="w-3 h-3" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <form onSubmit={handleSendMessage} className="relative">
+              <div className="absolute left-2 top-2 bottom-2 flex items-center">
+                 <label className={`aspect-square p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer ${isReadingFile ? 'opacity-50 animate-pulse' : 'hover:bg-[var(--card-border)]'}`}>
+                   <Paperclip className={`w-5 h-5 ${attachedFile ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`} />
+                   <input type="file" className="hidden" onChange={handleFileUpload} disabled={isReadingFile || !!attachedFile} />
+                 </label>
+              </div>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Send a message..."
-                className="w-full pl-5 pr-14 py-4 rounded-2xl shadow-sm transition-all focus:ring-2 focus:ring-[var(--accent)]/20"
+                placeholder={attachedFile ? "Ask about the file..." : "Send a message..."}
+                className="w-full pl-12 pr-14 py-4 rounded-2xl shadow-sm transition-all focus:ring-2 focus:ring-[var(--accent)]/20"
                 disabled={isProcessing}
               />
               <button 
