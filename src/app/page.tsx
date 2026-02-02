@@ -25,7 +25,9 @@ import {
   Minimize,
   Pencil,
   Check,
-  X
+  X,
+  Search,
+  Globe
 } from 'lucide-react';
 
 const DEFAULT_COUNCIL = [
@@ -80,6 +82,9 @@ export default function Home() {
   const [councilMode, setCouncilMode] = useState<'debate' | 'solo'>('debate');
   const [showReasoning, setShowReasoning] = useState(true);
   const [activeModel, setActiveModel] = useState<string>(DEFAULT_COUNCIL[1].model); 
+
+  // Search Settings
+  const [searchProvider, setSearchProvider] = useState<'serper' | 'tavily'>('serper');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +145,8 @@ export default function Home() {
     if (savedScale) setUiScale(parseFloat(savedScale));
     const savedDebug = localStorage.getItem('zenith_debug');
     if (savedDebug) setDebugMode(savedDebug === 'true');
+    const savedSearch = localStorage.getItem('zenith_search_provider');
+    if (savedSearch === 'serper' || savedSearch === 'tavily') setSearchProvider(savedSearch);
 
     checkSession();
   }, []);
@@ -335,7 +342,8 @@ export default function Home() {
         mode,
         role,
         messages: historyMessages,
-        debug: debugMode
+        debug: debugMode,
+        searchProvider: searchProvider
       }),
     });
     
@@ -448,6 +456,12 @@ export default function Home() {
     setCouncil(updated);
     localStorage.setItem('zenith_council', JSON.stringify(updated));
     setEditingModelId(null);
+  };
+
+  const toggleSearchProvider = () => {
+    const next = searchProvider === 'serper' ? 'tavily' : 'serper';
+    setSearchProvider(next);
+    localStorage.setItem('zenith_search_provider', next);
   };
 
   const updateUiScale = (val: number) => {
@@ -725,6 +739,27 @@ export default function Home() {
                   <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${debugMode ? 'left-4.5' : 'left-0.5'}`} />
                 </div>
               </button>
+
+              {/* Search Provider Toggle */}
+              <div className="p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm flex items-center gap-2"><Globe className="w-3 h-3 text-[var(--text-muted)]" /> Search Tool</span>
+                  <div className="flex bg-[var(--card-border)] p-0.5 rounded-lg">
+                    <button 
+                      onClick={() => { setSearchProvider('serper'); localStorage.setItem('zenith_search_provider', 'serper'); }}
+                      className={`text-[9px] px-2 py-1 rounded-md transition-all ${searchProvider === 'serper' ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'}`}
+                    >
+                      SERPER
+                    </button>
+                    <button 
+                      onClick={() => { setSearchProvider('tavily'); localStorage.setItem('zenith_search_provider', 'tavily'); }}
+                      className={`text-[9px] px-2 py-1 rounded-md transition-all ${searchProvider === 'tavily' ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'}`}
+                    >
+                      TAVILY
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               {/* UI Scale */}
               <div className="p-2">
