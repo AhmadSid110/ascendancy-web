@@ -374,6 +374,12 @@ export default function Home() {
       }),
     });
     
+    // Auto-relogin check: If 401, the session might have expired in the cookies
+    if (response.status === 401) {
+        setIsAuthenticated(false);
+        throw new Error("Session expired. Please log in again.");
+    }
+    
     const contentType = response.headers.get("content-type");
     if (!response.ok) {
         if (contentType && contentType.indexOf("application/json") !== -1) {

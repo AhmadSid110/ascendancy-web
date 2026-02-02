@@ -21,8 +21,8 @@ export async function POST(req: Request) {
     (await cookies()).set(cookieName, session.secret, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: true,
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
 
