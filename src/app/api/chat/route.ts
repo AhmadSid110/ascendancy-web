@@ -152,6 +152,12 @@ export async function POST(req: Request) {
     
     const getProviderAndKey = (m: string) => {
         if (m && (m.startsWith('gpt-') || m.startsWith('openai/'))) return { provider: 'openai' as const, key: openaiKey };
+        
+        // Check for explicit Google provider prefixes
+        if (m && m.startsWith('antigravity/')) return { provider: 'google-antigravity' as const, key: googleAntigravityRefresh };
+        if (m && m.startsWith('cli/')) return { provider: 'google-cli' as const, key: googleCliRefresh };
+        
+        // Auto-detection fallback
         if (m && (m.startsWith('gemini-') || m.startsWith('google-'))) {
             if (m.includes('antigravity')) return { provider: 'google-antigravity' as const, key: googleAntigravityRefresh };
             return { provider: 'google-cli' as const, key: googleCliRefresh };
@@ -161,12 +167,14 @@ export async function POST(req: Request) {
 
     const safeCallAI = async (m: string, msgs: any[]) => {
       const { provider, key } = getProviderAndKey(m);
-      if (!key) throw new Error(`Missing ${provider} key/token.`);
+      if (!key) throw new Error(`Missing ${provider} key/token. Please link your account in settings.`);
       
       if (provider === 'google-antigravity' || provider === 'google-cli') {
           const type = provider === 'google-antigravity' ? 'antigravity' : 'cli';
           const accessToken = await refreshGoogleToken(key, type);
-          return await callGemini(accessToken, m, msgs);
+          // Remove the prefix before calling Gemini API
+          const cleanModel = m.replace('antigravity/', '').replace('cli/', '');
+          return await callGemini(accessToken, cleanModel, msgs);
       }
       
       return await callAI(key, m, msgs, provider);

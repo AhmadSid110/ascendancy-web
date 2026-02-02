@@ -487,8 +487,11 @@ export default function Home() {
     let finalPath = newModelPath;
     if (newModelProvider === 'lightning' && !finalPath.startsWith('lightning-ai/')) {
         finalPath = `lightning-ai/${finalPath}`;
+    } else if (newModelProvider === 'antigravity' && !finalPath.startsWith('antigravity/')) {
+        finalPath = `antigravity/${finalPath}`;
+    } else if (newModelProvider === 'cli' && !finalPath.startsWith('cli/')) {
+        finalPath = `cli/${finalPath}`;
     }
-    // OpenAI usually doesn't need prefix for standard models, but our backend handles it if it's "gpt-..."
     
     const newModel = {
       id: ID.unique(),
@@ -888,6 +891,8 @@ export default function Home() {
               >
                   <option value="lightning">Lightning AI</option>
                   <option value="openai">OpenAI</option>
+                  <option value="antigravity">Google Antigravity</option>
+                  <option value="cli">Google CLI</option>
               </select>
 
               <input value={newModelName} onChange={e => setNewModelName(e.target.value)} placeholder="Display Name (e.g. GPT-4)" className="w-full bg-transparent border-b border-[var(--card-border)] p-1 text-xs focus:ring-0 mb-2" />
