@@ -138,7 +138,17 @@ export async function POST(req: Request) {
       if (knowledge) msgs[msgs.length - 1].content += knowledge;
 
       const content = await safeCallAI(model, msgs);
-      await saveHistory('chat_history', { userId: user.$id, message: content, role: 'assistant', sender: model, timestamp: new Date().toISOString() });
+      
+      const { threadId: bodyThreadId } = await req.json().catch(() => ({}));
+
+      await saveHistory('chat_history', { 
+        userId: user.$id, 
+        message: content, 
+        role: 'assistant', 
+        sender: model, 
+        timestamp: new Date().toISOString(),
+        threadId: bodyThreadId
+      });
       return NextResponse.json({ content, model });
     }
 

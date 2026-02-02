@@ -30,7 +30,9 @@ import {
   Globe,
   BookOpen,
   Paperclip,
-  FileUp
+  FileUp,
+  MessageCircle,
+  PlusCircle
 } from 'lucide-react';
 import LibraryTab from '@/components/LibraryTab';
 
@@ -67,6 +69,10 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Multi-Chat State
+  const [threads, setThreads] = useState<any[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -390,7 +396,8 @@ export default function Home() {
         role,
         messages: historyMessages,
         debug: debugMode,
-        searchProvider: searchProvider
+        searchProvider: searchProvider,
+        threadId: activeThreadId
       }),
     });
     
@@ -684,6 +691,39 @@ export default function Home() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           
+          {/* Threads Section */}
+          <div>
+            <div className="flex items-center justify-between mb-3 px-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Conversations</h3>
+              <button onClick={createThread} className="text-[var(--accent)] hover:text-[var(--accent)]/80 transition-colors">
+                <PlusCircle className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-1 mb-6">
+              {threads.map(thread => (
+                <div 
+                  key={thread.$id}
+                  onClick={() => switchThread(thread.$id)}
+                  className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${activeThreadId === thread.$id ? 'bg-[var(--accent)] text-white shadow-md' : 'hover:bg-[var(--card-border)] text-[var(--text-muted)]'}`}
+                >
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <MessageCircle className={`w-3.5 h-3.5 flex-shrink-0 ${activeThreadId === thread.$id ? 'text-white' : 'text-[var(--accent)]'}`} />
+                    <span className="text-xs font-medium truncate">{thread.title}</span>
+                  </div>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); deleteThread(thread.$id); }}
+                    className={`opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-black/10 transition-all ${activeThreadId === thread.$id ? 'text-white' : 'text-red-400'}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {threads.length === 0 && (
+                <p className="text-[10px] text-center text-[var(--text-muted)] italic py-2">No active conversations</p>
+              )}
+            </div>
+          </div>
+
           {/* Council Section */}
           <div>
             <div className="flex items-center justify-between mb-3 px-2">
