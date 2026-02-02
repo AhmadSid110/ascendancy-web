@@ -10,19 +10,26 @@ async function searchWeb(query: string, provider: string = 'serper') {
       const apiKey = process.env.TAVILY_API_KEY;
       if (!apiKey) return 'Error: TAVILY_API_KEY not set on server.';
       
+      console.log(`[Tool:Search] Requesting Tavily...`);
       const response = await fetch('https://api.tavily.com/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({
           api_key: apiKey,
           query: query,
-          search_depth: "smart",
-          include_answer: true,
+          search_depth: "basic",
           max_results: 5
         }),
       });
 
-      if (!response.ok) return `Tavily Error: ${response.status}`;
+      if (!response.ok) {
+        const errText = await response.text();
+        return `Tavily Error ${response.status}: ${errText}`;
+      }
+      
       const data = await response.json();
       return data.results?.map((item: any, i: number) => (
         `[${i + 1}] ${item.title}\nLink: ${item.url}\nSnippet: ${item.content}`
