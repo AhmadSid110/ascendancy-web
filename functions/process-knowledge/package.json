@@ -1,0 +1,10 @@
+{
+  "name": "process-knowledge",
+  "version": "1.0.0",
+  "description": "Extracts text from uploaded documents and stores in Database for RAG",
+  "main": "src/main.js",
+  "dependencies": {
+    "node-appwrite": "^14.0.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

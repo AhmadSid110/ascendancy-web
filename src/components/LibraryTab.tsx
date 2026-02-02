@@ -50,36 +50,12 @@ export default function LibraryTab({ user }: { user: any }) {
     setIsUploading(true);
     try {
       // 1. Upload to Storage
-      const uploadedFile = await storage.createFile(BUCKET_ID, ID.unique(), file);
-      
-      // 2. Simple Client-Side Processing (since we want simple RAG first)
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const text = event.target?.result as string;
-        // Chunking (Simple)
-        const chunks = text.match(/[\s\S]{1,2000}/g) || [text];
-        
-        // 3. Save Chunks to DB
-        for (const chunk of chunks) {
-          await databases.createDocument(DB_ID, COLL_ID, ID.unique(), {
-            userId: user?.$id || 'guest',
-            fileId: uploadedFile.$id,
-            fileName: file.name,
-            content: chunk,
-            metadata: JSON.stringify({ size: file.size, type: file.type })
-          });
-        }
-        loadFiles();
-      };
-      
-      if (file.type === 'application/pdf') {
-          // For PDF we'd ideally use a server-side function, 
-          // but for now let's treat it as text if it's small or notify user.
-          console.warn("PDF text extraction requires server-side function. Storing file only.");
-      } else {
-          reader.readAsText(file);
-      }
-      
+    const uploadedFile = await storage.createFile(BUCKET_ID, ID.unique(), file);
+    
+    // Server-side processing handles the chunking now.
+    // We just need to refresh the list once the file is in storage.
+    loadFiles();
+    
     } catch (e) {
       console.error('Upload failed', e);
     } finally {
