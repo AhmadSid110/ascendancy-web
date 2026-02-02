@@ -68,6 +68,53 @@ async function callAI(apiKey: string, model: string, messages: any[], provider: 
   return data.choices[0].message.content;
 }
 
+async function refreshGoogleToken(refreshToken: string, type: 'antigravity' | 'cli') {
+  const CLIENTS: Record<string, { id: string, secret?: string }> = {
+    antigravity: { id: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com", secret: process.env.GOOGLE_ANTIGRAVITY_SECRET },
+    cli: { id: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com", secret: process.env.GOOGLE_CLI_SECRET }
+  };
+  const client = CLIENTS[type];
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: client.id,
+      client_secret: client.secret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  const data = await res.json();
+  return data.access_token;
+}
+
+async function callGemini(accessToken: string, model: string, messages: any[]) {
+    // We can use the OpenAI compatible endpoint that Antigravity provides or standard Google API
+    // For simplicity and to match the 'antigravity' behavior, we use the cloudcode-pa endpoint logic
+    const url = "https://cloudcode-pa.googleapis.com/v1internal:predict"; 
+    // Wait, let's use the standard Gemini API with the OAuth token
+    const modelName = model.split('/').pop() || 'gemini-1.5-flash';
+    const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+
+    const response = await fetch(googleUrl, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            contents: messages.map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }]
+            }))
+        }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(`Gemini Error: ${JSON.stringify(data)}`);
+    return data.candidates[0].content.parts[0].text;
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt, model, messages: historyMessages, mode, debug, role, searchProvider = 'serper' } = await req.json();
@@ -85,6 +132,7 @@ export async function POST(req: Request) {
     const { databases } = await createAdminClient();
     const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB_ID || 'ascendancy_db';
     let lightningKey = process.env.LIGHTNING_API_KEY, openaiKey = process.env.OPENAI_API_KEY, lUser = '', lTeam = '';
+    let googleAntigravityRefresh = '', googleCliRefresh = '';
 
     if (user.$id !== 'guest') {
       try {
@@ -95,14 +143,32 @@ export async function POST(req: Request) {
         if (findS('openai_api_key')) openaiKey = findS('openai_api_key');
         if (findS('lightning_username')) lUser = findS('lightning_username');
         if (findS('lightning_teamspace')) lTeam = findS('lightning_teamspace');
+        if (findS('google_antigravity_refresh')) googleAntigravityRefresh = findS('google_antigravity_refresh');
+        if (findS('google_cli_refresh')) googleCliRefresh = findS('google_cli_refresh');
       } catch (e) {}
     }
 
     if (lightningKey && lUser && lTeam) lightningKey = `${lightningKey}/${lUser}/${lTeam}`;
-    const getProviderAndKey = (m: string) => (m && (m.startsWith('gpt-') || m.startsWith('openai/'))) ? { provider: 'openai' as const, key: openaiKey } : { provider: 'lightning' as const, key: lightningKey };
+    
+    const getProviderAndKey = (m: string) => {
+        if (m && (m.startsWith('gpt-') || m.startsWith('openai/'))) return { provider: 'openai' as const, key: openaiKey };
+        if (m && (m.startsWith('gemini-') || m.startsWith('google-'))) {
+            if (m.includes('antigravity')) return { provider: 'google-antigravity' as const, key: googleAntigravityRefresh };
+            return { provider: 'google-cli' as const, key: googleCliRefresh };
+        }
+        return { provider: 'lightning' as const, key: lightningKey };
+    };
+
     const safeCallAI = async (m: string, msgs: any[]) => {
       const { provider, key } = getProviderAndKey(m);
-      if (!key) throw new Error(`Missing ${provider} key.`);
+      if (!key) throw new Error(`Missing ${provider} key/token.`);
+      
+      if (provider === 'google-antigravity' || provider === 'google-cli') {
+          const type = provider === 'google-antigravity' ? 'antigravity' : 'cli';
+          const accessToken = await refreshGoogleToken(key, type);
+          return await callGemini(accessToken, m, msgs);
+      }
+      
       return await callAI(key, m, msgs, provider);
     };
 

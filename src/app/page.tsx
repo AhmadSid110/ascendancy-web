@@ -117,6 +117,13 @@ export default function Home() {
   // Search Settings
   const [searchProvider, setSearchProvider] = useState<'serper' | 'tavily'>('serper');
 
+  // Google Linking State
+  const [linkingProvider, setLinkingProvider] = useState<'antigravity' | 'cli' | null>(null);
+  const [googleAuthUrl, setGoogleAuthUrl] = useState('');
+  const [googleVerifier, setGoogleVerifier] = useState('');
+  const [googleCodeInput, setGoogleCodeInput] = useState('');
+  const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -532,6 +539,69 @@ export default function Home() {
     localStorage.setItem('zenith_search_provider', next);
   };
 
+  const startGoogleLink = async (provider: 'antigravity' | 'cli') => {
+    setIsLinkingGoogle(true);
+    setLinkingProvider(provider);
+    try {
+        const res = await fetch('/api/auth/google/url', {
+            method: 'POST',
+            body: JSON.stringify({ provider, redirectUri: window.location.origin + '/oauth-callback' })
+        });
+        const data = await res.json();
+        setGoogleAuthUrl(data.url);
+        setGoogleVerifier(data.verifier);
+        window.open(data.url, '_blank');
+    } catch (e: any) {
+        setError(e.message);
+    } finally {
+        setIsLinkingGoogle(false);
+    }
+  };
+
+  const finishGoogleLink = async () => {
+    if (!googleCodeInput || !linkingProvider) return;
+    setIsProcessing(true);
+    try {
+        // Extract code from URL if user pasted the whole thing
+        let code = googleCodeInput;
+        if (code.includes('code=')) {
+            const url = new URL(code);
+            code = url.searchParams.get('code') || code;
+        }
+
+        const res = await fetch('/api/auth/google/callback', {
+            method: 'POST',
+            body: JSON.stringify({ 
+                code, 
+                verifier: googleVerifier, 
+                provider: linkingProvider,
+                redirectUri: window.location.origin + '/oauth-callback'
+            })
+        });
+        const tokens = await res.json();
+        
+        // Save to Appwrite
+        const suffix = linkingProvider === 'antigravity' ? 'antigravity' : 'cli';
+        await saveKey(`google_${suffix}_refresh`, tokens.refresh_token);
+        
+        // Fetch Email & Project
+        const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
+            headers: { Authorization: `Bearer ${tokens.access_token}` }
+        });
+        const userInfo = await userInfoRes.json();
+        await saveKey(`google_${suffix}_email`, userInfo.email);
+
+        setGoogleAuthUrl('');
+        setGoogleCodeInput('');
+        setLinkingProvider(null);
+        alert(`Successfully linked Google Account: ${userInfo.email}`);
+    } catch (e: any) {
+        setError(e.message);
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
   const updateUiScale = (val: number) => {
       setUiScale(val);
       localStorage.setItem('zenith_scale', val.toString());
@@ -942,6 +1012,46 @@ export default function Home() {
                             </p>
                         )}
                       </div>
+
+                      {/* Google Linking */}
+                      <div className="pt-2 border-t border-[var(--card-border)]">
+                        <label className="text-[10px] uppercase text-[var(--text-muted)] mb-2 block">Google Accounts (BYOS)</label>
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                           <button 
+                             onClick={() => startGoogleLink('antigravity')}
+                             disabled={isLinkingGoogle}
+                             className="text-[10px] bg-[var(--background)] hover:bg-[var(--card-border)] border border-[var(--card-border)] p-2 rounded-lg transition-colors flex items-center gap-2 justify-center"
+                           >
+                             <Globe className="w-3 h-3" /> Antigravity
+                           </button>
+                           <button 
+                             onClick={() => startGoogleLink('cli')}
+                             disabled={isLinkingGoogle}
+                             className="text-[10px] bg-[var(--background)] hover:bg-[var(--card-border)] border border-[var(--card-border)] p-2 rounded-lg transition-colors flex items-center gap-2 justify-center"
+                           >
+                             <Terminal className="w-3 h-3" /> Gemini CLI
+                           </button>
+                        </div>
+
+                        {linkingProvider && (
+                            <div className="p-2 bg-[var(--background)] border border-[var(--accent)]/30 rounded-xl space-y-2 animate-in fade-in zoom-in-95">
+                                <p className="text-[9px] text-[var(--text-muted)]">
+                                    Sign in on the new tab, then paste the **Redirect URL** (the whole link) from the address bar below:
+                                </p>
+                                <input 
+                                    value={googleCodeInput}
+                                    onChange={e => setGoogleCodeInput(e.target.value)}
+                                    placeholder="Paste URL here..."
+                                    className="w-full bg-[var(--card-bg)] rounded p-1.5 text-xs border border-[var(--card-border)]"
+                                />
+                                <div className="flex gap-1">
+                                    <button onClick={finishGoogleLink} className="flex-1 bg-[var(--accent)] text-white text-[10px] py-1 rounded">Connect</button>
+                                    <button onClick={() => setLinkingProvider(null)} className="px-2 border border-[var(--card-border)] text-[10px] py-1 rounded">Cancel</button>
+                                </div>
+                            </div>
+                        )}
+                      </div>
+
                       <button onClick={handleSaveApiKeys} className="w-full bg-[var(--accent)] text-white text-xs py-1.5 rounded hover:bg-[var(--accent)]/90">Save Keys</button>
                   </div>
               )}
