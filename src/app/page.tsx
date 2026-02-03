@@ -861,7 +861,12 @@ export default function Home() {
                     <>
                       <div className="flex justify-between items-center mb-1">
                         <div className="flex flex-col">
-                            <span className="text-sm font-medium">{member.name}</span>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{member.name}</span>
+                                {activeModel === member.model && (
+                                    <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" />
+                                )}
+                            </div>
                             <span className="text-[10px] text-[var(--accent)] font-semibold uppercase tracking-wider">{member.role}</span>
                         </div>
                         <div className="flex items-center gap-1">
